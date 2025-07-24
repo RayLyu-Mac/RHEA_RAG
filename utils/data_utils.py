@@ -20,12 +20,20 @@ def load_paper_list(tracker_path: str = "../vectorization_tracker.csv") -> Tuple
             vectorized_papers = df[df['vectorized'] == True]
             paper_list = []
             for _, row in vectorized_papers.iterrows():
+                # Compute full folder path relative to Papers root
+                abs_paper_path = os.path.abspath(row['file_path'])
+                abs_root = os.path.abspath('../Papers')
+                rel_folder_path = os.path.relpath(os.path.dirname(abs_paper_path), abs_root).replace('\\', '/')
+                top_level_folder = rel_folder_path.split('/')[0] if '/' in rel_folder_path else rel_folder_path
                 paper_info = {
                     'file_name': row['file_name'],
                     'file_path': row['file_path'],
                     'figure_count': row.get('figure_count', 0),
                     'has_figures': row.get('has_figure_descriptions', False),
-                    'folder': os.path.basename(os.path.dirname(row['file_path']))
+                    'folder': os.path.basename(os.path.dirname(row['file_path'])),
+                    'folder_path': rel_folder_path,
+                    'top_level_folder': top_level_folder,
+                    'rel_folder_path': rel_folder_path,
                 }
                 paper_list.append(paper_info)
             return paper_list, df

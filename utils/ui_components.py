@@ -143,28 +143,71 @@ def display_theme_toggle():
         st.rerun()
 
 
-def display_paper_selection(paper_list: List[Dict], folder_order: List[str], folder_icons: Dict[str, str]) -> List[str]:
-    """Display paper selection interface with folder grouping"""
+def display_folder_tree(papers, parent_path=""):
+    """Recursively display papers in collapsible folders/subfolders."""
+    import os
+    from collections import defaultdict
     selected_papers = []
-    
-    # Group papers by folder
-    papers_by_folder = {}
+    folders = defaultdict(list)
+    files = []
+    for paper in papers:
+        # Defensive: compute folder_path if missing
+        if 'folder_path' not in paper:
+            abs_paper_path = os.path.abspath(paper['file_path'])
+            abs_root = os.path.abspath('../Papers')
+            paper['folder_path'] = os.path.relpath(os.path.dirname(abs_paper_path), abs_root).replace('\\', '/')
+        rel_path = os.path.relpath(paper['folder_path'], parent_path).replace('\\', '/')
+        if '/' in rel_path and rel_path != '.':
+            next_folder = rel_path.split('/', 1)[0]
+            folders[next_folder].append(paper)
+        elif rel_path == '' or rel_path == '.' or '/' not in rel_path:
+            files.append(paper)
+        else:
+            files.append(paper)
+    # Show files in this folder
+    for paper in sorted(files, key=lambda x: x['file_name']):
+        col_paper, col_view = st.columns([7, 1])
+        with col_paper:
+            if st.checkbox(
+                paper['file_name'].replace('.pdf', ''),
+                key=f"paper_{paper['file_name']}",
+                help=f"Figures: {paper['figure_count']}"
+            ):
+                selected_papers.append(paper['file_name'])
+        with col_view:
+            st.markdown('''<style>.stButton button {padding: 0.1rem 0.3rem !important; font-size: 1.1em !important;}</style>''', unsafe_allow_html=True)
+            if st.button("👁️", key=f"view_{paper['file_name']}", help="View paper"):
+                st.session_state.view_paper_pdf = paper['file_path']
+                st.rerun()
+    # Show subfolders
+    for folder in sorted(folders.keys()):
+        with st.expander(folder, expanded=False):
+            selected_papers += display_folder_tree(folders[folder], os.path.join(parent_path, folder))
+    return selected_papers
+
+def display_paper_selection(paper_list, folder_order, folder_icons):
+    from collections import defaultdict
+    selected_papers = []
+    papers_by_top = defaultdict(list)
     for paper in paper_list:
-        folder = paper['folder']
-        if folder not in papers_by_folder:
-            papers_by_folder[folder] = []
-        papers_by_folder[folder].append(paper)
-    
-    # Display papers by folder in specified order
+        top_level = paper.get('top_level_folder')
+        if not top_level:
+            import os
+            if 'folder_path' in paper:
+                top_level = paper['folder_path'].split('/')[0]
+            else:
+                abs_paper_path = os.path.abspath(paper['file_path'])
+                abs_root = os.path.abspath('../Papers')
+                rel_folder_path = os.path.relpath(os.path.dirname(abs_paper_path), abs_root).replace('\\', '/')
+                top_level = rel_folder_path.split('/')[0] if '/' in rel_folder_path else rel_folder_path
+            paper['top_level_folder'] = top_level
+        papers_by_top[top_level].append(paper)
     for folder in folder_order:
-        if folder in papers_by_folder:
-            folder_papers = papers_by_folder[folder]
-            if folder_papers:
-                st.markdown(f"**{folder_icons.get(folder, '📁')} {folder}**")
-                
-                for paper in folder_papers:
+        if folder in papers_by_top:
+            icon = folder_icons.get(folder, '📁')
+            with st.expander(f"{icon} {folder}", expanded=False):
+                for paper in sorted(papers_by_top[folder], key=lambda x: x['file_name']):
                     col_paper, col_view = st.columns([7, 1])
-                    
                     with col_paper:
                         if st.checkbox(
                             paper['file_name'].replace('.pdf', ''),
@@ -172,16 +215,11 @@ def display_paper_selection(paper_list: List[Dict], folder_order: List[str], fol
                             help=f"Figures: {paper['figure_count']}"
                         ):
                             selected_papers.append(paper['file_name'])
-                    
                     with col_view:
-                        # Add inline CSS to reduce button padding
                         st.markdown('''<style>.stButton button {padding: 0.1rem 0.3rem !important; font-size: 1.1em !important;}</style>''', unsafe_allow_html=True)
                         if st.button("👁️", key=f"view_{paper['file_name']}", help="View paper"):
                             st.session_state.view_paper_pdf = paper['file_path']
                             st.rerun()
-                
-                st.divider()
-    
     return selected_papers
 
 
