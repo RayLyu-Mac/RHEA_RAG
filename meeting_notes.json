@@ -1,0 +1,40 @@
+{
+  "2025-07-15_0": {
+    "id": "2025-07-15_0",
+    "date": "2025-07-15",
+    "title": "Mini-review Update-2",
+    "content": "Introduction \nHow dislocation behaves in HEAs\nTwo types of dislocation \nMethod to ID types (from a paper  CMWP method\nLattice distortion effect\nPhase difference effect\nPrepinned \nTemperature\n\n\nLattice distortion\nHu2025: modify Zr content to change atomic size misfit, low lattice distortion make dislocation move easily, high lattice distortion increase dislocation interaction (too much lead to stress concentration built up, too low quick slip)\nWang2025: Too low lattice distortion cause dislocation move too fast lead premature fracture (high defect free area)\n\nConclusion \nLattice distortion induced due to atomic size difference will changing the energy barrier for dislocation to move, too low lattice distortion will not efficiently impede the dislocation and induce the interaction between dislocation. Too high lattice distortion will lead to localized dislocation concertation lead to premature failure\n\nPhase difference\nXu et.al: varying Ti content to chang the ratio between hard phase and soft phase. Dislocation length are longer in softer phase and shorter at hard phase\nLi et.al: varying Zr content, varying the dendritic and interdendritc region (where ID soft DR hard), forming hetero-deformation-induced (HDI) strengthening\n\nConclusion:\nDislocation is difficult to move within hard phase and prefer to generate in the soft phase. But it phase hardness difference should be adjusted so it can allow the cross slip, to let soft phase dislocation move to hard phase\n\n\n\nRest sections…\n2. Temperature and dislocation behavior\nTseng et.al: based on the dislocation strengthening calculation (where edge dislocation has higher coefficient), suggest the thermal plateau exist due to transition from screw to edge dislocation to supplement the drop in SSS. \n3. Prepinned dislocation \nXu et.al: Use cyclic deformation method to prepinned the dislocation generated during AM into cell wall. \nDislocation section summary \n6 papers, 4 sections\nMainly focus on how dislocation behaves in different environment, \nImpede dislocation: more distorted or hard  lead to more interaction across dislocations\nEfficient moving: smoothed or soft  lead to less interaction, longer dislocation and likely the localized necking…\nPrecipitation strengthening \nOutline\nIntroduction:\nPrecipitation mechanism:\nShearing \nOrowon \nPrecipitation strengthening modeling \nAntiphase boundary \nPrecipitation at RT\nPrecipitation at HT\nLCO\nAntiphase boundary (APB)\nDai et.al: with annealing above 1000C,  the AlZr at grain boundary disappear and high density BCC APB in B2 phase enhance the mechanical properties \nLi et.al: D022 superlattice structure with FCC after 1200C 5hrs. \nDeformation at 1000C shows diminish effect due to increase in precipitate size\n\nAPB mainly act as barrier to impede dislocation motion, but its stability depends on the precipitate (LCF?) size\nPrecipitation at RT\nJin et.al: Al  B2 precipitate size and volume fraction \nWang et.al: similar\n\nConclusion: In RT, for RHEA being investigated, the size and volume fraction increase as Al increase, need to optimize the Al amount for optimized mech properties\nPrecipitate is stable during deformation \nPrecipitation at HT\nLong et.al: In Al0.3 (compared to Al0/0.1/0.2) TiVNbTaAlx, the 800C annealing shows precipitation formation at GB (not B2) deteriorate both yield and ductility. \nJin et.al: Deformation above 873K will lead destabilization of BCC precipitate and formation of AlZr\nCai et.al: BCC nano particle destabilize above 873K. \n\nConclusion: the precipitate induced by Al (the BCC nano precipitate) is not stable at HT for the composition investigate, and will deteriorate mechanical prop after dissolve \nNano scale ordering \nWang et.al:Ti40−xNb35−xV25−2xAl2xZr2x, B2 SRO appears in x=4 and increase size/volume fraction as x=5 and also induce Laves phase. X=4 has the optimized prop. \nx=4 alloy shows more efficient dislocation interaction while x=5 lead to localized dislocation concentration \n\nZhang et.al: Al0.3NbTi3VZr1.5 compared bwt annealed (RA) and recrystallized sample (AT).  Both sample shows mixture of coarse and fine grain, the AT sample shows LCFs and C14. \nPrecipitate leads to secondary strain hardening, which is induced by secondary microband, that was caused by the dislocation interaction  \n\nWang et.al, use N-O non-metal doping to create LCO, act as barrier to impede dislocation and FR source  may consider move to precipitation section \n\nPrecipitation summary \n9 papers 4 sections\nMost precipitate increase as Al increase but mostly unstable at high temp\nRAG\n\n\n",
+    "summary": "",
+    "created_at": "2025-07-15T21:37:35.329240",
+    "updated_at": "2025-07-18T20:10:16.768183",
+    "metadata": {
+      "questions": "Does the annealing has the same effect as cyclic deformation?\nWhats the frequency and amount of time required for the cyclic deformation for this strengthening purpose?\nDoes the cyclic deformation also remove the thermal stress?\nIs there a way to simulate this cyclic deformation in LAMMPS or MD",
+      "papers_discussed": [],
+      "tags": [
+        "Minireview update",
+        "dislocation",
+        "precipitation"
+      ]
+    }
+  },
+  "2025-06-23_1": {
+    "id": "2025-06-23_1",
+    "date": "2025-06-23",
+    "title": "dislocation/thesis update",
+    "content": "•\tProcess Update \n\n•\tThesis\n•\tW contained alloy’s defect analysis shows:\n•\tIf not consider the defect due to box changes, then no defects\n•\tGiven the compression simulation, the dimension for the box will change…\n•\tConsider remove W from the Lammps analysis \n•\tDislocation strengthening in RHEA\n•\tPrepinned dislocation:\n•\tIn AM sample, the large temperature gradient will create molten pool  create cellular structure (inside the grain boundary)\n•\tIn which cell wall can act as the site to absorb and store dislocation. Hence a cyclic loading method being developed to push the dislocation toward wall prior  to tensile test\n•\tThis will allow dislocation concentrated at the cell wall region to improve yield strength \n•\tQ: Can this cyclic process being applied to other system?\n•\tPicture display \n•\tOxygen-Nitrogen LCO \n•\tUse non-metal doping strategies froming nano LCOs, \n•\tMainly act as the site to nucleate dislocation and dislocation loops,  dislocation pinning\n•\tThey used synchrotron XRD to show the dislocation density is double compared with no oxygen-nitrogen added alloy\n•\tHowever, the results shows contribution from dislocation is neglible but main contribution come from the intersitial solid solution from N and O (atomic size difference)\n\n\n",
+    "summary": "",
+    "created_at": "2025-07-18T20:21:43.327529",
+    "updated_at": "2025-07-18T20:21:43.327535",
+    "metadata": {
+      "questions": "Is the cyclic deformation act to the whole sample or part of the sample",
+      "papers_discussed": [
+        "liu2025improving.pdf"
+      ],
+      "tags": [
+        "Thesis",
+        "W contain alloy",
+        "Lammps"
+      ]
+    }
+  }
+}

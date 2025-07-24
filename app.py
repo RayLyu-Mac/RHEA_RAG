@@ -241,31 +241,80 @@ def search_papers(question, selected_papers=None, search_type="both", k=5):
         return None, []
     
     try:
-        # Search the vector store
-        search_results = st.session_state.vectorstore.similarity_search(question, k=k*2)
-
-        # If user has selected papers, but none of the search results match, 
-        # try to fetch all chunks from the selected papers as fallback
+        # If specific papers are selected, search with a broader query and larger k
         if selected_papers and len(selected_papers) > 0:
+            # Search with larger k to increase chances of finding selected papers
+            search_results = st.session_state.vectorstore.similarity_search(question, k=k*4)
+            
+            # Filter by selected papers
             filtered_results = [
                 doc for doc in search_results 
                 if doc.metadata.get('file_name') in selected_papers
             ]
-            # If no results after filtering, try to fetch all chunks from selected papers
+            
+            # If we still don't have enough results, try different search strategies
+            if len(filtered_results) < k:
+                # Try searching for each paper individually with broader terms
+                additional_results = []
+                for paper_name in selected_papers:
+                    # Search specifically within this paper
+                    try:
+                        # Try with filter first (if supported)
+                        paper_results = st.session_state.vectorstore.similarity_search(
+                            f"{question} {paper_name.replace('.pdf', '')}", 
+                            k=k,
+                            filter={"file_name": paper_name}
+                        )
+                    except Exception:
+                        # Fallback: search with broader query and filter manually
+                        paper_results = st.session_state.vectorstore.similarity_search(
+                            f"{question} {paper_name.replace('.pdf', '')}", 
+                            k=k*2
+                        )
+                        paper_results = [
+                            doc for doc in paper_results 
+                            if doc.metadata.get('file_name') == paper_name
+                        ]
+                    additional_results.extend(paper_results)
+                
+                # Combine and deduplicate results
+                all_results = filtered_results.copy()
+                seen_ids = set([doc.metadata.get('document_id', '') for doc in filtered_results])
+                
+                for doc in additional_results:
+                    doc_id = doc.metadata.get('document_id', '')
+                    if doc_id not in seen_ids:
+                        all_results.append(doc)
+                        seen_ids.add(doc_id)
+                
+                filtered_results = all_results
+            
+            # If still no results, try a very broad search within selected papers
             if not filtered_results:
-                # Try to get all docs from vectorstore that match selected_papers
-                # This assumes your vectorstore has a method to get all docs or you have access to the full doc list
-                if hasattr(st.session_state.vectorstore, "docs"):
-                    all_docs = st.session_state.vectorstore.docs
-                elif hasattr(st.session_state.vectorstore, "get_all_documents"):
-                    all_docs = st.session_state.vectorstore.get_all_documents()
-                else:
-                    all_docs = []
-                filtered_results = [
-                    doc for doc in all_docs
-                    if doc.metadata.get('file_name') in selected_papers
-                ][:k]
+                for paper_name in selected_papers:
+                    # Try searching just for the paper name
+                    try:
+                        broad_results = st.session_state.vectorstore.similarity_search(
+                            paper_name.replace('.pdf', ''),
+                            k=2,
+                            filter={"file_name": paper_name}
+                        )
+                    except Exception:
+                        # Fallback: search broadly and filter manually
+                        broad_results = st.session_state.vectorstore.similarity_search(
+                            paper_name.replace('.pdf', ''),
+                            k=4
+                        )
+                        broad_results = [
+                            doc for doc in broad_results 
+                            if doc.metadata.get('file_name') == paper_name
+                        ]
+                    filtered_results.extend(broad_results)
+            
             search_results = filtered_results
+        else:
+            # No specific papers selected, search normally
+            search_results = st.session_state.vectorstore.similarity_search(question, k=k*2)
 
         # Filter by document type
         if search_type == "parent":
