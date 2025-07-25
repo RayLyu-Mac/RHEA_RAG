@@ -8,6 +8,7 @@ import streamlit as st
 import os
 import sys
 from typing import List, Optional
+import graphviz
 
 # Add parent directory to path to import vectorized module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -72,6 +73,12 @@ def load_initial_data():
     if st.session_state.vectorstore is None:
         with st.spinner("Loading vector store..."):
             st.session_state.vectorstore = load_vectorstore()
+    
+    # Load LLM automatically
+    if st.session_state.llm is None and st.session_state.available_models:
+        with st.spinner("Loading LLM..."):
+            st.session_state.llm = load_llm(st.session_state.available_models[0])
+            st.session_state.current_model = st.session_state.available_models[0]
 
 
 def display_sidebar() -> tuple:
@@ -163,21 +170,16 @@ def display_sidebar() -> tuple:
     return selected_papers, llm_model, search_type, num_results
 
 
-def display_question_section(llm_model: str, selected_papers: List[str], search_type: str, num_results: int):
+def display_question_section(llm_model: str, selected_papers: List[str], search_type: str, num_results: int, gap_toggle: bool = False):
     """Display the question input and optimization section"""
-    # Question input card
-    st.markdown(create_glass_card("💬 Ask Questions"), unsafe_allow_html=True)
-    
-    # Question input
+    # Question input (no card title here)
     question = st.text_area(
         "Your Question:",
         placeholder="Ask about precipitation strengthening, microstructure, mechanical properties, etc.",
         height=100
     )
-    
     # Question optimization section
     col_opt1, col_opt2 = st.columns([1, 1])
-    
     with col_opt1:
         if st.button("🧠 Optimize Question", help="Let AI optimize your question for better search results"):
             if question.strip():
@@ -185,7 +187,6 @@ def display_question_section(llm_model: str, selected_papers: List[str], search_
                 if st.session_state.llm is None:
                     with st.spinner("Loading LLM for optimization..."):
                         st.session_state.llm = load_llm(st.session_state.available_models[0])
-                
                 if st.session_state.llm:
                     with st.spinner("Optimizing question..."):
                         optimized_q, keywords = optimize_question(st.session_state.llm, question)
@@ -195,49 +196,40 @@ def display_question_section(llm_model: str, selected_papers: List[str], search_
                     st.error("Failed to load LLM for optimization")
             else:
                 st.warning("Please enter a question first")
-    
+        # Display optimized question if available (in left column)
+        if st.session_state.optimized_question:
+            st.markdown(create_optimize_card("🎯 Optimized Question"), unsafe_allow_html=True)
+            st.markdown(
+                create_content_card(st.session_state.optimized_question, "margin: 0.25rem 0 0.5rem 0; padding: 0.5rem 0.75rem;"),
+                unsafe_allow_html=True
+            )
     with col_opt2:
         if st.button("🔑 Show Keywords", help="Show suggested keywords for better search"):
             st.session_state.suggested_keywords = get_suggested_keywords()
-    
-    # Display optimized question if available
-    if st.session_state.optimized_question:
-        st.markdown(create_optimize_card("🎯 Optimized Question"), unsafe_allow_html=True)
-        st.markdown(
-            create_content_card(st.session_state.optimized_question, "margin: 0.25rem 0 0.5rem 0; padding: 0.5rem 0.75rem;"),
-            unsafe_allow_html=True
-        )
-        
-        # Ask optimized question button
-        if st.button("🔍 Ask Question (Optimized)", key="ask_optimized_q", type="primary"):
-            handle_question_submission(st.session_state.optimized_question, llm_model, selected_papers, search_type, num_results)
-    
-    # Keyword selection section
-    if st.session_state.suggested_keywords:
-        st.markdown(create_glass_card("🏷️ Select Keywords"), unsafe_allow_html=True)
-        st.markdown("**Select keywords to enhance your search:**")
-        cols = st.columns(3)
-        for i, keyword in enumerate(st.session_state.suggested_keywords):
-            with cols[i % 3]:
-                if st.checkbox(keyword, key=f"keyword_{keyword}"):
-                    if keyword not in st.session_state.selected_keywords:
-                        st.session_state.selected_keywords.append(keyword)
-                else:
-                    if keyword in st.session_state.selected_keywords:
-                        st.session_state.selected_keywords.remove(keyword)
-        
-        # Clear keywords button
-        col_clear1, col_clear2 = st.columns([1, 1])
-        with col_clear1:
-            if st.button("🗑️ Clear Keywords"):
-                st.session_state.selected_keywords = []
-                st.rerun()
-        with col_clear2:
-            if st.button("🔄 Refresh Keywords"):
-                st.session_state.suggested_keywords = get_suggested_keywords()
-                st.rerun()
-    
-    # Show selected keywords
+        # Keyword selection section (in right column)
+        if st.session_state.suggested_keywords:
+            st.markdown(create_glass_card("🏷️ Select Keywords"), unsafe_allow_html=True)
+            st.markdown("**Select keywords to enhance your search:**")
+            cols = st.columns(3)
+            for i, keyword in enumerate(st.session_state.suggested_keywords):
+                with cols[i % 3]:
+                    if st.checkbox(keyword, key=f"keyword_{keyword}"):
+                        if keyword not in st.session_state.selected_keywords:
+                            st.session_state.selected_keywords.append(keyword)
+                    else:
+                        if keyword in st.session_state.selected_keywords:
+                            st.session_state.selected_keywords.remove(keyword)
+            # Clear keywords button
+            col_clear1, col_clear2 = st.columns([1, 1])
+            with col_clear1:
+                if st.button("🗑️ Clear Keywords"):
+                    st.session_state.selected_keywords = []
+                    st.rerun()
+            with col_clear2:
+                if st.button("🔄 Refresh Keywords"):
+                    st.session_state.suggested_keywords = get_suggested_keywords()
+                    st.rerun()
+    # Show selected keywords (below both columns)
     if st.session_state.selected_keywords:
         st.markdown("**Selected Keywords:**")
         selected_keywords_text = " • ".join(st.session_state.selected_keywords)
@@ -245,15 +237,81 @@ def display_question_section(llm_model: str, selected_papers: List[str], search_
             create_content_card(selected_keywords_text, "background: rgba(0, 0, 0, 0.1); margin: 0.25rem 0 0.5rem 0; padding: 0.5rem 0.75rem;"),
             unsafe_allow_html=True
         )
-    
     # Ask button - only if not showing optimized question
     if not st.session_state.optimized_question:
         st.markdown("---")
         if st.button("🔍 Ask Question", type="primary", use_container_width=True):
             if question.strip():
-                handle_question_submission(question, llm_model, selected_papers, search_type, num_results)
+                if gap_toggle:
+                    # GAP IDENTIFIER LOGIC
+                    abstracts = []
+                    for paper in st.session_state.paper_list:
+                        if paper['file_name'] in selected_papers:
+                            abstract = paper.get('abstract', None)
+                            if not abstract:
+                                abstract, _ = get_paper_abstract_and_keywords(st.session_state.vectorstore, paper['file_name'])
+                            if abstract:
+                                abstracts.append(abstract)
+                    if abstracts and st.session_state.llm:
+                        gap_prompt = (
+                            '''You are an expert research assistant specialized in materials science, tasked with analyzing a set of retrieved research papers to identify research gaps. The papers focus on [insert specific topic, e.g., "refractory high-entropy alloys (RHEAs)"] and have been retrieved from a vector database based on their relevance to the topic. Your goal is to synthesize key findings, methodologies, and limitations from these papers and identify underexplored areas, contradictions, or open questions that could guide future research. Follow these steps:
+
+                            1. **Summarize Key Findings**: Provide a concise summary of the main results, trends, or conclusions from the retrieved papers, focusing on [specific aspect, e.g., "mechanical properties, microstructure, or dislocation mechanisms in RHEAs"].
+                            2. **Identify Methodologies**: Highlight the primary experimental, computational, or theoretical approaches used in these papers, noting any recurring techniques or tools.
+                            3. **Analyze Limitations**: Point out explicitly stated limitations or challenges in the papers, such as incomplete datasets, specific alloy compositions not studied, or unexplored conditions (e.g., temperature, pressure).
+                            4. **Detect Contradictions**: Identify any conflicting findings or interpretations across the papers, such as differing conclusions about [specific aspect, e.g., "the role of lattice distortion in RHEA strength"].
+                            5. **Suggest Research Gaps**: Based on the summaries, limitations, and contradictions, propose specific research gaps or unanswered questions. Focus on areas that are underexplored, novel, or have potential for significant impact in [field, e.g., "RHEA design for aerospace applications"]. Provide at least 3 concrete suggestions, each with a brief justification.
+                            6. **Prioritize Feasibility**: For each suggested gap, briefly assess its feasibility based on current methodologies or technologies mentioned in the papers, and suggest a potential approach to address it (e.g., experimental, simulation-based, or theoretical).
+
+                            **Input Context**: You have access to [number, e.g., "10"] retrieved research papers or document chunks stored in a vector database, with summaries and metadata including titles, abstracts, and key sections (e.g., results, conclusions). If figures or tables are available, consider their data (e.g., mechanical properties, phase diagrams) in your analysis.
+
+                            **Output Format**:
+                            - **Summary of Key Findings**: [Brief summary, 3-4 sentences]
+                            - **Methodologies Used**: [List key methods, 2-3 sentences]
+                            - **Limitations Identified**: [List limitations, 2-3 sentences]
+                            - **Contradictions Noted**: [Describe contradictions or lack thereof, 2-3 sentences]
+                            - **Research Gaps and Suggestions**:
+                            - Gap 1: [Description and justification]
+                                - Feasibility: [Brief assessment and suggested approach]
+                            - Gap 2: [Description and justification]
+                                - Feasibility: [Brief assessment and suggested approach]
+                            - Gap 3: [Description and justification]
+                                - Feasibility: [Brief assessment and suggested approach]
+
+                            **Constraints**:
+                            - Be concise, precise, and avoid speculation beyond the provided data.
+                            - Focus on gaps relevant to [specific topic, e.g., "RHEAs"] and avoid overly broad suggestions.
+                            - If insufficient data is available to identify gaps, state this clearly and suggest ways to refine the retrieval (e.g., adjust query terms, include more recent papers).
+                            - Use technical language appropriate for materials science but ensure clarity for a researcher audience.
+
+                            **Example Context (if needed)**: The papers discuss topics like [e.g., "dislocation dynamics, phase stability, or high-temperature performance of RHEAs"], with some including experimental data (e.g., tensile strength tests) and others using simulations (e.g., molecular dynamics).
+
+                            Please analyze the provided papers and generate a detailed research gap analysis following the structure above.'''
+                            + "\n\n".join(abstracts)
+                        )
+                        with st.spinner("LLM is analyzing research gaps..."):
+                            try:
+                                gap_response = st.session_state.llm.invoke(gap_prompt)
+                                st.session_state['qa_answer'] = gap_response
+                            except Exception as e:
+                                st.session_state['qa_answer'] = f"Error: {e}"
+                    else:
+                        st.session_state['qa_answer'] = "No abstracts found or LLM not loaded."
+                else:
+                    handle_question_submission(question, llm_model, selected_papers, search_type, num_results)
             else:
                 st.warning("Please enter a question")
+    # Display answer (normal or gap)
+    if st.session_state.get('qa_answer'):
+        if gap_toggle:
+            st.markdown("**LLM-Identified Research Gaps:**")
+        else:
+            st.markdown(create_glass_card("📝 Answer"), unsafe_allow_html=True)
+            st.caption(f"Generated using: {llm_model}")
+        st.markdown(
+            create_content_card(st.session_state['qa_answer'], "margin: 0.25rem 0 0.5rem 0; padding: 0.5rem 0.75rem; background: rgba(0,0,0,0.1);"),
+            unsafe_allow_html=True
+        )
 
 
 def handle_question_submission(question: str, llm_model: str, selected_papers: List[str], search_type: str, num_results: int):
@@ -468,13 +526,7 @@ def display_network_section(selected_papers: List[str]):
             # Set diagonal to 1
             np.fill_diagonal(demo_matrix, 1.0)
             
-            # Use the paper network visualization function
-            from utils.paper_network_viz import plot_paper_network_interactive
-            fig = plot_paper_network_interactive(selected_metadata, demo_matrix)
-            if fig:
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("No connections found with current threshold")
+           
         else:
             st.warning("No valid paper metadata found")
     else:
@@ -640,27 +692,137 @@ def main():
     tab1, tab2, tab3, tab4 = st.tabs(["💬 Ask Question", "🖼️ Paper Preview", "🕸️ Paper Network", "🌐 Scholar Abstract Scraper"])
     
     with tab1:
-        # Scholar follow-up controls
-        import datetime
-        current_year = datetime.datetime.now().year
-        years = ["All"] + [str(y) for y in range(current_year, 1999, -1)]
-        scholar_year = st.selectbox("Year limit for follow-up reading (optional):", years, index=0)
-        scholar_toggle = st.checkbox("Suggest follow-up reading from Google Scholar", value=False)
-        
-        col_llm, col_scholar = st.columns([2, 1])
-        
-        with col_llm:
-            display_question_section(llm_model, selected_papers, search_type, num_results)
-        
-        with col_scholar:
-            # Always show Suggested Follow Up Reading section
+        col_ask, col_suggest = st.columns([1, 1.5])
+        with col_ask:
+            st.markdown(create_glass_card("💬 Ask Questions"), unsafe_allow_html=True)
+            gap_toggle = st.checkbox("Identify Research Gaps", value=False, key="gap_toggle")
+            display_question_section(llm_model, selected_papers, search_type, num_results, gap_toggle=gap_toggle)
+        with col_suggest:
+            # At the very top of the right column: toggle, year, and results
+            import datetime
+            current_year = datetime.datetime.now().year
+            years = ["All"] + [str(y) for y in range(current_year, 1999, -1)]
+            col_year, col_toggle = st.columns([1, 1])
+            with col_year:
+                scholar_year = st.selectbox("Year limit", years, index=0, key="year_limit", label_visibility="visible")
+            with col_toggle:
+                scholar_toggle = st.checkbox("Suggest follow-up reading", value=False)
             scholar_search_and_display()
-    
+
     with tab2:
         display_preview_section(selected_papers)
     
     with tab3:
-        display_network_section(selected_papers)
+        st.markdown('### 🤖 LLM-Powered Paper Grouping Table')
+        group_question = st.text_input('Enter a grouping question for the table (e.g., "What type of precipitate is present in the paper?")', value='')
+        if 'llm_grouped_table' not in st.session_state:
+            st.session_state['llm_grouped_table'] = None
+        if 'llm_grouped_table_refined' not in st.session_state:
+            st.session_state['llm_grouped_table_refined'] = None
+        if st.button('Group Papers by LLM', disabled=st.session_state.llm is None, help='LLM must be loaded to group papers.'):
+            # Only now fetch abstracts and run LLM
+            selected_paper_objs = []
+            for paper in st.session_state.paper_list:
+                if paper['file_name'] in selected_papers:
+                    abstract = paper.get('abstract', None)
+                    if not abstract:
+                        abstract, _ = get_paper_abstract_and_keywords(st.session_state.vectorstore, paper['file_name'])
+                    selected_paper_objs.append({'file_name': paper['file_name'], 'abstract': abstract or ''})
+            from utils.paper_network_viz import llm_grouped_network_interactive
+            # Get group labels for each paper
+            group_labels = []
+            for paper in selected_paper_objs:
+                _, group_to_color = llm_grouped_network_interactive([paper], st.session_state.llm, group_question)
+                group_label = list(group_to_color.keys())[0] if group_to_color else 'Unknown'
+                group_labels.append(group_label)
+            # Build table data (no abstract)
+            table_data = []
+            for paper, group_label in zip(selected_paper_objs, group_labels):
+                table_data.append({
+                    'Paper Title': paper['file_name'],
+                    'Group': group_label
+                })
+            st.session_state['llm_grouped_table'] = table_data
+
+            # LLM refinement step
+            table_str = "\n".join([f"{row['Paper Title']} | {row['Group']}" for row in table_data])
+            refine_prompt = (
+                "Given the following list of papers and their initial groupings, refine the groups to be more scientifically meaningful. "
+                "Consider grouping by crystal lattice type, composition, or other relevant scientific criteria. "
+                "Output a new table with columns: Paper Title, Refined Group.\n\n"
+                "Paper Title | Group\n"
+                f"{table_str}\n"
+                "Refined Table:"
+            )
+            try:
+                refined_output = st.session_state.llm.invoke(refine_prompt)
+                # Try to parse the LLM's output into a table
+                import pandas as pd
+                import io
+                # Find the start of the table in the output
+                lines = [line for line in refined_output.splitlines() if '|' in line]
+                if lines:
+                    # Assume the first line is header, rest are data
+                    header = lines[0]
+                    data_lines = lines[1:]
+                    csv_str = header.replace('|', ',') + '\n' + '\n'.join([l.replace('|', ',') for l in data_lines])
+                    df_refined = pd.read_csv(io.StringIO(csv_str))
+                    st.session_state['llm_grouped_table_refined'] = df_refined
+                else:
+                    st.session_state['llm_grouped_table_refined'] = None
+            except Exception as e:
+                st.warning(f"Could not refine groups: {e}")
+                st.session_state['llm_grouped_table_refined'] = None
+        # Show the initial and refined tables if available
+        table_data = st.session_state.get('llm_grouped_table', None)
+        if table_data:
+            import pandas as pd
+            df = pd.DataFrame(table_data)
+            st.markdown("**Initial LLM Grouping:**")
+            st.dataframe(df)
+            df_refined = st.session_state.get('llm_grouped_table_refined', None)
+            if df_refined is not None:
+                st.markdown("**LLM-Refined Grouping:**")
+                st.dataframe(df_refined)
+        else:
+            st.info('Select papers and click the button to group and view them by LLM-extracted mechanism/type/conclusion.')
+
+        st.markdown('---')
+        st.markdown('### 🗺️ RAG Pipeline Flowchart Generator')
+        st.write('Select papers on the left, then generate a RAG pipeline flowchart using LLM.')
+        dot_code = st.session_state.get('rag_dot_code', None)
+        col_dot, col_graph = st.columns([1, 2])
+        with col_dot:
+            st.markdown('**DOT Code:**')
+            if dot_code:
+                st.code(dot_code, language='dot')
+            else:
+                st.info('No DOT code generated yet.')
+        with col_graph:
+            button_disabled = st.session_state.llm is None
+            button_help = 'LLM must be loaded to generate DOT code.' if button_disabled else 'Generate a RAG pipeline flowchart using LLM.'
+            if st.button('Generate RAG Flowchart (DOT) with LLM', disabled=button_disabled, help=button_help):
+                paper_titles = ', '.join([p['file_name'] for p in st.session_state.paper_list if p['file_name'] in selected_papers])
+                prompt = (
+                    "Generate a Graphviz DOT flowchart representing a Retrieval-Augmented Generation (RAG) pipeline. "
+                    "Include nodes for Query, Retrieve Documents, Generate Response, and Display, with directed edges connecting them in sequence. "
+                    "Use clear, concise DOT syntax suitable for rendering with the graphviz Python library. "
+                    f"The following papers are selected as context: {paper_titles if paper_titles else 'None'}. "
+                    "Only output the DOT code, no explanation."
+                )
+                try:
+                    dot_code = st.session_state.llm.invoke(prompt)
+                    st.session_state['rag_dot_code'] = dot_code
+                except Exception as e:
+                    st.error(f"LLM failed to generate DOT code: {e}")
+            # Show DOT code and render if available
+            dot_code = st.session_state.get('rag_dot_code', None)
+            if dot_code:
+                try:
+                    graph = graphviz.Source(dot_code)
+                    st.graphviz_chart(graph.source)
+                except Exception as e:
+                    st.error(f"Failed to render DOT graph: {e}")
     
     with tab4:
         display_scholar_section()

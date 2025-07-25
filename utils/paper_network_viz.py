@@ -7,141 +7,188 @@ import streamlit as st
 import plotly.graph_objects as go
 import networkx as nx
 import numpy as np
+import tempfile
+from graphviz import Source
+import os
 
-
-def plot_paper_network_interactive(paper_metadata, similarity_matrix, min_threshold=0.2, max_threshold=1.0, default_threshold=0.5):
+def plot_mechanism_network_interactive(paper_metadata):
     """
-    Plots an interactive network diagram of research papers based on a similarity matrix.
-    
+    Plots an interactive network diagram of research papers grouped by mechanism/conclusion.
     Args:
-        paper_metadata (list of dict): Each dict must have 'title' and 'authors' keys.
-        similarity_matrix (2D list or np.ndarray): Symmetric matrix of pairwise similarities.
-        min_threshold (float): Minimum value for similarity threshold slider.
-        max_threshold (float): Maximum value for similarity threshold slider.
-        default_threshold (float): Default value for similarity threshold slider.
-    
+        paper_metadata (list of dict): Each dict must have 'title', 'mechanism', 'color'.
     Returns:
         plotly.graph_objects.Figure: The Plotly figure for display in Streamlit.
     """
     try:
-        # Validate inputs
         n = len(paper_metadata)
         if n == 0:
             st.warning("No papers to visualize.")
             return None
-        
-        if not isinstance(similarity_matrix, np.ndarray):
-            similarity_matrix = np.array(similarity_matrix)
-        
-        if similarity_matrix.shape != (n, n):
-            st.error(f"Similarity matrix shape {similarity_matrix.shape} does not match number of papers {n}.")
-            return None
-        
-        # Streamlit slider for threshold
-        threshold = st.slider(
-            "Similarity threshold for connections",
-            min_value=float(min_threshold),
-            max_value=float(max_threshold),
-            value=float(default_threshold),
-            step=0.01
-        )
-        
-        # Build NetworkX graph
+        # Build fully connected graph
         G = nx.Graph()
-        
-        # Add nodes
         for i, meta in enumerate(paper_metadata):
-            G.add_node(i, title=meta.get('title', f'Paper {i+1}'), authors=meta.get('authors', 'Unknown'))
-        
-        # Add edges based on threshold
+            G.add_node(i, title=meta.get('title', f'Paper {i+1}'), mechanism=meta.get('mechanism', 'Unknown'), color=meta.get('color', '#888'))
         for i in range(n):
             for j in range(i+1, n):
-                sim = similarity_matrix[i, j]
-                if sim >= threshold:
-                    G.add_edge(i, j, weight=sim)
-        
-        if G.number_of_edges() == 0:
-            st.info("No connections above the selected threshold.")
-            return None
-        
-        # Layout for Plotly (spring layout)
+                G.add_edge(i, j)
         pos = nx.spring_layout(G, seed=42)
-        
-        # Node positions
-        node_x, node_y = [], []
-        node_text = []
-        node_degree = []
-        
+        node_x, node_y, node_text, node_color = [], [], [], []
         for node in G.nodes():
             x, y = pos[node]
             node_x.append(x)
             node_y.append(y)
             meta = G.nodes[node]
-            node_text.append(f"<b>{meta['title']}</b><br>Authors: {meta['authors']}")
-            node_degree.append(G.degree[node])
-        
-        # Edge positions
+            node_text.append(f"<b>{meta['title']}</b><br>Mechanism: {meta['mechanism']}")
+            node_color.append(meta['color'])
         edge_x, edge_y = [], []
         for edge in G.edges():
             x0, y0 = pos[edge[0]]
             x1, y1 = pos[edge[1]]
             edge_x += [x0, x1, None]
             edge_y += [y0, y1, None]
-        
-        # Plotly traces
         edge_trace = go.Scatter(
             x=edge_x, y=edge_y,
             line=dict(width=1, color='#888'),
             hoverinfo='none',
             mode='lines'
         )
-        
         node_trace = go.Scatter(
             x=node_x, y=node_y,
             mode='markers+text',
             textposition='top center',
             hoverinfo='text',
             marker=dict(
-                showscale=True,
-                colorscale='Viridis',
-                color=node_degree,
+                color=node_color,
                 size=18,
-                colorbar=dict(
-                    thickness=15,
-                    title='Node Degree',
-                    xanchor='left',
-                    titleside='right'
-                ),
                 line_width=2
             ),
             text=[meta['title'] for meta in paper_metadata],
             hovertext=node_text
         )
-        
-        # Create figure
         fig = go.Figure(
             data=[edge_trace, node_trace],
             layout=go.Layout(
-                title='<b>Paper Relationship Network</b>',
-                titlefont_size=20,
+                title='<b>Mechanism/Conclusion Network</b>',
                 showlegend=False,
                 hovermode='closest',
                 margin=dict(b=20, l=5, r=5, t=40),
-                annotations=[
-                    dict(
-                        text="Node color = degree (number of connections)",
-                        showarrow=False,
-                        xref="paper", yref="paper",
-                        x=0.005, y=-0.002
-                    )
-                ],
                 xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
                 yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
             )
         )
-        
         return fig
-        
     except Exception as e:
-        st.error(f"Error generating network visualization: {e}")
-        return None 
+        st.error(f"Error generating mechanism network visualization: {e}")
+        return None
+
+def render_dot_flowchart(dot_code):
+    """
+    Render a Graphviz DOT flowchart and display it in Streamlit.
+    Args:
+        dot_code (str): DOT code string.
+    """
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dot_path = os.path.join(tmpdir, "flowchart.dot")
+            png_path = os.path.join(tmpdir, "flowchart.png")
+            with open(dot_path, "w") as f:
+                f.write(dot_code)
+            graph = Source.from_file(dot_path)
+            graph.render(filename="flowchart", directory=tmpdir, format="png", cleanup=True)
+            st.image(png_path)
+    except Exception as e:
+        st.error(f"Error rendering DOT flowchart: {e}")
+
+def llm_grouped_network_interactive(selected_papers, llm, user_question=None):
+    """
+    LLM-powered grouping network: groups papers by LLM-extracted label (mechanism/type/conclusion) based on user_question.
+    Args:
+        selected_papers (list of dict): Each dict must have 'file_name', 'abstract'.
+        llm: The loaded LLM (must have .invoke(prompt)).
+        user_question (str): The user's question for grouping (optional).
+    Returns:
+        fig: plotly.graph_objects.Figure
+        group_legend: dict mapping group label to color
+    """
+    import plotly.graph_objects as go
+    import networkx as nx
+    color_palette = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A', '#19D3F3', '#FF6692', '#B6E880']
+    paper_metadata = []
+    group_to_color = {}
+    color_idx = 0
+    if not user_question:
+        user_question = "What is the main mechanism or conclusion discussed in this paper? Summarize in one sentence."
+    for paper in selected_papers:
+        abstract = paper.get('abstract', '')
+        prompt = (
+            f"Given the following abstract and the user's question:\n\n"
+            f"Question: {user_question}\n\n"
+            f"Abstract:\n{abstract}\n\n"
+            f"What is the main mechanism, type, or conclusion discussed in this paper relevant to the question? Summarize in one sentence."
+        )
+        try:
+            group_label = llm.invoke(prompt)
+        except Exception as e:
+            group_label = "Unknown"
+        if group_label not in group_to_color:
+            group_to_color[group_label] = color_palette[color_idx % len(color_palette)]
+            color_idx += 1
+        paper_metadata.append({
+            'title': paper['file_name'],
+            'group_label': group_label,
+            'color': group_to_color[group_label]
+        })
+    # Build fully connected graph
+    n = len(paper_metadata)
+    G = nx.Graph()
+    for i, meta in enumerate(paper_metadata):
+        G.add_node(i, title=meta['title'], group_label=meta['group_label'], color=meta['color'])
+    for i in range(n):
+        for j in range(i+1, n):
+            G.add_edge(i, j)
+    pos = nx.spring_layout(G, seed=42)
+    node_x, node_y, node_text, node_color = [], [], [], []
+    for node in G.nodes():
+        x, y = pos[node]
+        node_x.append(x)
+        node_y.append(y)
+        meta = G.nodes[node]
+        node_text.append(f"<b>{meta['title']}</b><br>Group: {meta['group_label']}")
+        node_color.append(meta['color'])
+    edge_x, edge_y = [], []
+    for edge in G.edges():
+        x0, y0 = pos[edge[0]]
+        x1, y1 = pos[edge[1]]
+        edge_x += [x0, x1, None]
+        edge_y += [y0, y1, None]
+    edge_trace = go.Scatter(
+        x=edge_x, y=edge_y,
+        line=dict(width=1, color='#888'),
+        hoverinfo='none',
+        mode='lines'
+    )
+    node_trace = go.Scatter(
+        x=node_x, y=node_y,
+        mode='markers+text',
+        textposition='top center',
+        hoverinfo='text',
+        marker=dict(
+            color=node_color,
+            size=18,
+            line_width=2
+        ),
+        text=[meta['title'] for meta in paper_metadata],
+        hovertext=node_text
+    )
+    fig = go.Figure(
+        data=[edge_trace, node_trace],
+        layout=go.Layout(
+            title='<b>LLM-Grouped Paper Network</b>',
+            showlegend=False,
+            hovermode='closest',
+            margin=dict(b=20, l=5, r=5, t=40),
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
+        )
+    )
+    return fig, group_to_color 
