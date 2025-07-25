@@ -49,7 +49,8 @@ def initialize_session_state():
         'selected_keywords': [],
         'current_model': None,
         'selected_notes_for_qa': [],
-        'view_paper_pdf': None
+        'view_paper_pdf': None,
+        'suggested_followup': [] # Added for suggested follow-up reading
     }
     
     for key, default_value in defaults.items():
@@ -270,6 +271,12 @@ def handle_question_submission(question: str, llm_model: str, selected_papers: L
             keywords_text = " ".join(st.session_state.selected_keywords)
             enhanced_question = f"{question} {keywords_text}"
         
+        # Use LLM to extract keywords for Scholar
+        if hasattr(st.session_state, 'llm') and st.session_state.llm:
+            optimized_q, keywords = optimize_question(st.session_state.llm, question)
+            st.session_state.optimized_question = optimized_q
+            st.session_state.suggested_keywords = keywords[:4] if keywords else []
+
         with st.spinner("Searching and generating answer..."):
             # Search papers
             search_results, success = search_papers(
@@ -348,6 +355,27 @@ def handle_question_submission(question: str, llm_model: str, selected_papers: L
                         create_content_card(preview_text, "font-size: 0.9em; margin: 0.25rem 0; padding: 0.5rem 0.75rem;"),
                         unsafe_allow_html=True
                     )
+        # Suggested Follow Up Reading (right column)
+        if search_results:
+            # Only show research papers (not meeting notes)
+            research_papers = [doc for doc in search_results if doc.metadata.get('content_type') != 'meeting_notes']
+            if research_papers:
+                # Build a mapping from file_name to file_path
+                file_map = {p['file_name']: p['file_path'] for p in st.session_state.paper_list}
+                # Use a session variable to store for right column
+                st.session_state.suggested_followup = [
+                    {
+                        'file_name': doc.metadata.get('file_name', 'Unknown'),
+                        'file_path': file_map.get(doc.metadata.get('file_name', ''), None),
+                        'title': doc.metadata.get('title', doc.metadata.get('file_name', 'Unknown')),
+                        'abstract': doc.metadata.get('abstract') or (doc.page_content[:300] + '...' if len(doc.page_content) > 300 else doc.page_content)
+                    }
+                    for doc in research_papers
+                ]
+            else:
+                st.session_state.suggested_followup = []
+        else:
+            st.session_state.suggested_followup = []
     else:
         st.error("Failed to load LLM model")
 
@@ -531,6 +559,61 @@ def display_scholar_section():
             st.error(f"Error during scholarly search: {e}")
 
 
+def scholar_search_and_display():
+    st.markdown('### 📖 Suggested Follow Up Reading')
+    keywords = st.session_state.get('suggested_keywords', [])[:4]
+    if not keywords:
+        st.info("No keywords found yet. Ask a question to get recommendations!")
+        return
+    query = ' '.join(keywords)
+    st.markdown(f"**Keywords used:** `{query}`")
+    try:
+        from scholarly import scholarly
+        search_iter = scholarly.search_pubs(query)
+        count = 0
+        paper_links = []
+        abstracts = []
+        years = []
+        for result in search_iter:
+            if count >= 5:
+                break
+            bib = result.get('bib', {})
+            title = bib.get('title', '(No title found)')
+            abstract = bib.get('abstract', '')
+            url = bib.get('url', '')
+            year = bib.get('pub_year', bib.get('year', ''))
+            scholar_link = url if url else f'https://scholar.google.com/scholar?q={title.replace(' ', '+')}'
+            paper_links.append({'title': title, 'link': scholar_link, 'year': year})
+            if abstract:
+                abstracts.append(abstract)
+            years.append(year)
+            count += 1
+        # LLM summary of all abstracts
+        if abstracts and hasattr(st.session_state, 'llm') and st.session_state.llm:
+            summary_prompt = (
+                "You are a scientific research assistant. Given the following abstracts from Google Scholar search results, "
+                "summarize the main findings and trends in 5 sentences. Present the summary as a numbered list.\n\n"
+                "ABSTRACTS:\n" + '\n\n'.join(abstracts) + "\n\nSUMMARY (5 sentences as a list):"
+            )
+            try:
+                summary = st.session_state.llm.invoke(summary_prompt)
+                st.markdown(f"**Summary of Suggested Readings:**\n{summary}")
+            except Exception as e:
+                st.warning(f"Could not generate summary: {e}")
+        else:
+            st.info("No abstracts available to summarize.")
+        # Display paper links and years
+        for paper in paper_links:
+            year_str = f" ({paper['year']})" if paper['year'] else ''
+            st.markdown(f"- [{paper['title']}]({paper['link']}){year_str}")
+        if count == 0:
+            st.info("No results found on Google Scholar.")
+    except ImportError:
+        st.error("The 'scholarly' package is not installed. Please install it with 'pip install scholarly'.")
+    except Exception as e:
+        st.error(f"Error during scholarly search: {e}")
+
+
 def main():
     """Main application function"""
     # Initialize session state
@@ -570,66 +653,8 @@ def main():
             display_question_section(llm_model, selected_papers, search_type, num_results)
         
         with col_scholar:
-            # Scholar follow-up logic (after LLM answer)
-            if (st.session_state.get('optimized_question') or st.session_state.get('qa_answer') or st.session_state.get('optimized_question', '').strip() or st.session_state.get('qa_question', '').strip()) and scholar_toggle:
-                # Try to import scholarly
-                try:
-                    from scholarly import scholarly
-                    SCHOLARLY_AVAILABLE = True
-                except ImportError:
-                    SCHOLARLY_AVAILABLE = False
-                
-                if not SCHOLARLY_AVAILABLE:
-                    st.error("The 'scholarly' package is not installed. Please install it with 'pip install scholarly'.")
-                else:
-                    # Use the last asked question as the query
-                    query = st.session_state.get('optimized_question') or st.session_state.get('qa_question') or ''
-                    if query.strip():
-                        st.markdown("### 📚 Scholar Follow-up")
-                        try:
-                            search_iter = scholarly.search_pubs(query)
-                            filtered_result = None
-                            for result in search_iter:
-                                bib = result.get('bib', {})
-                                year = str(bib.get('pub_year', bib.get('year', '')))
-                                if scholar_year == "All" or year == scholar_year:
-                                    filtered_result = result
-                                    break
-                            
-                            if not filtered_result:
-                                st.warning(f"No results found for year {scholar_year}." if scholar_year != "All" else "No results found.")
-                            else:
-                                bib = filtered_result.get('bib', {})
-                                title = bib.get('title', '(No title found)')
-                                authors = bib.get('author', '(No authors found)')
-                                year = bib.get('pub_year', bib.get('year', ''))
-                                venue = bib.get('venue', bib.get('journal', ''))
-                                abstract = bib.get('abstract', '(No abstract found)')
-                                url = bib.get('url', '')
-                                num_citations = filtered_result.get('num_citations', None)
-                                
-                                st.markdown(f"""
-**<span style='font-size:1.1em'>{title}</span>**
-
-**Authors:** {authors}
-
-**Year:** {year if year else 'N/A'}
-
-**Venue:** {venue if venue else 'N/A'}
-
-**Abstract:**
-> {abstract}
-
-{f'**URL:** [{url}]({url})' if url else ''}
-
-{f'**Citations:** {num_citations}' if num_citations is not None else ''}
-""", unsafe_allow_html=True)
-                                
-                                with st.expander("Show raw result (debug)"):
-                                    st.write(filtered_result)
-                                    
-                        except Exception as e:
-                            st.error(f"Error during scholarly search: {e}")
+            # Always show Suggested Follow Up Reading section
+            scholar_search_and_display()
     
     with tab2:
         display_preview_section(selected_papers)
