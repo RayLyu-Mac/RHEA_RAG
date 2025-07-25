@@ -11,7 +11,7 @@ from langchain.schema import Document
 
 
 @st.cache_resource
-def load_vectorstore(persist_directory: str = "../VectorSpace/paper_vector_db_nomic-embed-text_latest_parent_child"):
+def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nomic-embed-text_latest_parent_child"):
     """Load the vector store"""
     try:
         embeddings = OllamaEmbeddings(model="nomic-embed-text:latest")

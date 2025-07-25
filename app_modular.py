@@ -146,7 +146,7 @@ def display_sidebar() -> tuple:
                     st.success("✅ Vector store loaded")
                     
                     # Display vector store info
-                    persist_directory = "../VectorSpace/paper_vector_db_nomic-embed-text_latest_parent_child"
+                    persist_directory = "./VectorSpace/paper_vector_db_nomic-embed-text_latest_parent_child"
                     vector_store_name = os.path.basename(persist_directory)
                     st.info(f"📂 Vector store: {vector_store_name}")
                     
