@@ -59,10 +59,41 @@ def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nom
             print(f"🔍 Debug: Persist directory: {persist_directory}")
             print(f"🔍 Debug: Embeddings function: {embeddings}")
             
-            vectorstore = Chroma(persist_directory=persist_directory, embedding_function=embeddings)
+            # Try to create Chroma with embedding function
+            try:
+                vectorstore = Chroma(persist_directory=persist_directory, embedding_function=embeddings)
+                print("✅ Chroma created with embedding function")
+            except Exception as e:
+                print(f"⚠️ Failed to create Chroma with embedding function: {e}")
+                # Fallback: try without embedding function first
+                try:
+                    vectorstore = Chroma(persist_directory=persist_directory)
+                    print("✅ Chroma created without embedding function")
+                    # Try to set embedding function after creation
+                    if hasattr(vectorstore, 'embedding_function'):
+                        vectorstore.embedding_function = embeddings
+                        print("✅ Set embedding function after creation")
+                    elif hasattr(vectorstore, '_embedding_function'):
+                        vectorstore._embedding_function = embeddings
+                        print("✅ Set _embedding_function after creation")
+                    else:
+                        print("⚠️ Could not set embedding function - attribute not found")
+                except Exception as e2:
+                    print(f"❌ Failed to create Chroma without embedding function: {e2}")
+                    raise e2
             
             # Verify the embedding function is attached
-            print(f"🔍 Debug: Vector store embedding function: {vectorstore.embedding_function}")
+            print(f"🔍 Debug: Vector store type: {type(vectorstore)}")
+            print(f"🔍 Debug: Vector store attributes: {dir(vectorstore)}")
+            if hasattr(vectorstore, 'embedding_function'):
+                print(f"🔍 Debug: Vector store embedding function: {vectorstore.embedding_function}")
+            else:
+                print("🔍 Debug: Vector store has no embedding_function attribute")
+                # Try alternative attribute names
+                if hasattr(vectorstore, '_embedding_function'):
+                    print(f"🔍 Debug: Vector store _embedding_function: {vectorstore._embedding_function}")
+                if hasattr(vectorstore, 'embedding'):
+                    print(f"🔍 Debug: Vector store embedding: {vectorstore.embedding}")
             
             # Test the vector store by trying to get collection info
             try:
@@ -103,7 +134,28 @@ def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nom
                 # Try in-memory fallback
                 add_system_message('info', "🔄 Attempting to use in-memory Chroma as fallback...")
                 try:
-                    vectorstore = Chroma(embedding_function=embeddings)
+                    # Try to create in-memory Chroma with embedding function
+                    try:
+                        vectorstore = Chroma(embedding_function=embeddings)
+                        print("✅ In-memory Chroma created with embedding function")
+                    except Exception as e:
+                        print(f"⚠️ Failed to create in-memory Chroma with embedding function: {e}")
+                        # Fallback: try without embedding function first
+                        try:
+                            vectorstore = Chroma()
+                            print("✅ In-memory Chroma created without embedding function")
+                            # Try to set embedding function after creation
+                            if hasattr(vectorstore, 'embedding_function'):
+                                vectorstore.embedding_function = embeddings
+                                print("✅ Set embedding function after creation")
+                            elif hasattr(vectorstore, '_embedding_function'):
+                                vectorstore._embedding_function = embeddings
+                                print("✅ Set _embedding_function after creation")
+                            else:
+                                print("⚠️ Could not set embedding function - attribute not found")
+                        except Exception as e2:
+                            print(f"❌ Failed to create in-memory Chroma without embedding function: {e2}")
+                            raise e2
                     add_system_message('success', "✅ Successfully loaded in-memory Chroma vector store!")
                     add_system_message('warning', "⚠️ Note: This is an empty in-memory store. You'll need to re-vectorize your papers.")
                     return vectorstore
@@ -374,7 +426,14 @@ def get_paper_abstract_and_keywords(vectorstore, paper_name: str) -> Tuple[Optio
         
         print(f"🔍 Debug: Attempting to search vector store for {paper_name}")
         print(f"🔍 Debug: Vector store type: {type(vectorstore)}")
-        print(f"🔍 Debug: Vector store embedding function: {getattr(vectorstore, 'embedding_function', 'Not found')}")
+        if hasattr(vectorstore, 'embedding_function'):
+            print(f"🔍 Debug: Vector store embedding function: {vectorstore.embedding_function}")
+        elif hasattr(vectorstore, '_embedding_function'):
+            print(f"🔍 Debug: Vector store _embedding_function: {vectorstore._embedding_function}")
+        elif hasattr(vectorstore, 'embedding'):
+            print(f"🔍 Debug: Vector store embedding: {vectorstore.embedding}")
+        else:
+            print("🔍 Debug: Vector store has no embedding function attribute")
         
         # Try to search for child document (abstract) of this paper
         try:
