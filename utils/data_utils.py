@@ -24,17 +24,40 @@ def load_paper_list(tracker_path: str = "./vectorization_tracker.csv") -> Tuple[
             
             paper_list = []
             for _, row in vectorized_papers.iterrows():
-                # Compute full folder path relative to Papers root
+                # Get folder name directly from file path (more reliable)
+                folder_name = os.path.basename(os.path.dirname(row['file_path']))
+                
+                # Compute full folder path relative to Papers root (for compatibility)
                 abs_paper_path = os.path.abspath(row['file_path'])
                 abs_root = os.path.abspath('../Papers')
                 rel_folder_path = os.path.relpath(os.path.dirname(abs_paper_path), abs_root).replace('\\', '/')
                 top_level_folder = rel_folder_path.split('/')[0] if '/' in rel_folder_path else rel_folder_path
+                
+                # Debug: Print path information for first few papers
+                if len(paper_list) < 3:
+                    print(f"🔍 Debug path for {row['file_name']}:")
+                    print(f"   file_path: {row['file_path']}")
+                    print(f"   folder_name: {folder_name}")
+                    print(f"   abs_paper_path: {abs_paper_path}")
+                    print(f"   abs_root: {abs_root}")
+                    print(f"   rel_folder_path: {rel_folder_path}")
+                    print(f"   top_level_folder: {top_level_folder}")
+                
+                # Use folder_name as the primary source for top_level_folder
+                # This should work regardless of the deployment environment
+                if folder_name in ['dislocation', 'grainBoundary', 'Precipitation', 'SSS']:
+                    top_level_folder = folder_name
+                    rel_folder_path = folder_name
+                    print(f"✅ Using folder name: {folder_name} for {row['file_name']}")
+                else:
+                    print(f"⚠️ Unknown folder: {folder_name} for {row['file_name']}")
+                
                 paper_info = {
                     'file_name': row['file_name'],
                     'file_path': row['file_path'],
                     'figure_count': row.get('figure_count', 0),
                     'has_figures': row.get('has_figure_descriptions', False),
-                    'folder': os.path.basename(os.path.dirname(row['file_path'])),
+                    'folder': folder_name,
                     'folder_path': rel_folder_path,
                     'top_level_folder': top_level_folder,
                     'rel_folder_path': rel_folder_path,
