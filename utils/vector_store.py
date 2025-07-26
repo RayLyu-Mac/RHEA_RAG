@@ -4,11 +4,21 @@ Handles loading, searching, and managing the Chroma vector database.
 """
 
 import streamlit as st
-from langchain.vectorstores import Chroma
-from langchain.embeddings import OllamaEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import OllamaEmbeddings
 from typing import List, Optional, Tuple, Any
 from langchain.schema import Document
 
+
+def add_system_message(message_type: str, message: str):
+    """Add a system message to the session state for display in sidebar"""
+    if 'system_messages' not in st.session_state:
+        st.session_state.system_messages = []
+    
+    st.session_state.system_messages.append({
+        'type': message_type,
+        'message': message
+    })
 
 @st.cache_resource
 def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nomic-embed-text_latest_parent_child"):
@@ -17,21 +27,21 @@ def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nom
         # First, check SQLite version
         import sqlite3
         sqlite_version = sqlite3.sqlite_version
-        st.info(f"📊 SQLite version detected: {sqlite_version}")
+        add_system_message('info', f"📊 SQLite version detected: {sqlite_version}")
         
         # Check if the persist directory exists
         import os
         if not os.path.exists(persist_directory):
-            st.error(f"❌ Vector store directory not found: {persist_directory}")
-            st.info("💡 Please ensure the vector store has been created and the path is correct.")
+            add_system_message('error', f"❌ Vector store directory not found: {persist_directory}")
+            add_system_message('info', "💡 Please ensure the vector store has been created and the path is correct.")
             return None
         
         # Try to load embeddings
         try:
             embeddings = OllamaEmbeddings(model="nomic-embed-text:latest")
         except Exception as emb_error:
-            st.error(f"❌ Failed to load embeddings: {emb_error}")
-            st.info("💡 Please ensure Ollama is running and the 'nomic-embed-text:latest' model is available.")
+            add_system_message('error', f"❌ Failed to load embeddings: {emb_error}")
+            add_system_message('info', "💡 Please ensure Ollama is running and the 'nomic-embed-text:latest' model is available.")
             return None
         
         # Try to load Chroma with specific error handling
@@ -43,11 +53,11 @@ def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nom
                 collection = vectorstore._collection
                 if collection:
                     count = collection.count()
-                    st.success(f"✅ Vector store loaded successfully! Found {count} documents.")
+                    add_system_message('success', f"✅ Vector store loaded successfully! Found {count} documents.")
                 else:
-                    st.warning("⚠️ Vector store loaded but collection appears empty.")
+                    add_system_message('warning', "⚠️ Vector store loaded but collection appears empty.")
             except Exception as test_error:
-                st.warning(f"⚠️ Vector store loaded but couldn't verify contents: {test_error}")
+                add_system_message('warning', f"⚠️ Vector store loaded but couldn't verify contents: {test_error}")
             
             return vectorstore
             
@@ -56,49 +66,49 @@ def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nom
             
             # Handle specific SQLite version error
             if "sqlite3" in error_str.lower() and "3.35.0" in error_str:
-                st.error("❌ SQLite version compatibility issue detected!")
-                st.error(f"Current SQLite version: {sqlite_version}")
-                st.error("Chroma requires SQLite ≥ 3.35.0")
+                add_system_message('error', "❌ SQLite version compatibility issue detected!")
+                add_system_message('error', f"Current SQLite version: {sqlite_version}")
+                add_system_message('error', "Chroma requires SQLite ≥ 3.35.0")
                 
                 # Provide solutions
-                st.markdown("**Solutions:**")
-                st.markdown("1. **Update Python environment** (recommended):")
-                st.markdown("   ```bash")
-                st.markdown("   pip install --upgrade chromadb")
-                st.markdown("   pip install --upgrade pysqlite3-binary  # Optional")
-                st.markdown("   ```")
+                add_system_message('info', "**Solutions:**")
+                add_system_message('info', "1. **Update Python environment** (recommended):")
+                add_system_message('info', "   ```bash")
+                add_system_message('info', "   pip install --upgrade chromadb")
+                add_system_message('info', "   pip install --upgrade pysqlite3-binary  # Optional")
+                add_system_message('info', "   ```")
                 
-                st.markdown("2. **Use a different vector store backend:**")
-                st.markdown("   - Consider using FAISS or other backends")
-                st.markdown("   - Or use in-memory Chroma")
+                add_system_message('info', "2. **Use a different vector store backend:**")
+                add_system_message('info', "   - Consider using FAISS or other backends")
+                add_system_message('info', "   - Or use in-memory Chroma")
                 
                 # Try in-memory fallback
-                st.info("🔄 Attempting to use in-memory Chroma as fallback...")
+                add_system_message('info', "🔄 Attempting to use in-memory Chroma as fallback...")
                 try:
                     vectorstore = Chroma(embedding_function=embeddings)
-                    st.success("✅ Successfully loaded in-memory Chroma vector store!")
-                    st.warning("⚠️ Note: This is an empty in-memory store. You'll need to re-vectorize your papers.")
+                    add_system_message('success', "✅ Successfully loaded in-memory Chroma vector store!")
+                    add_system_message('warning', "⚠️ Note: This is an empty in-memory store. You'll need to re-vectorize your papers.")
                     return vectorstore
                 except Exception as mem_error:
-                    st.error(f"❌ In-memory fallback also failed: {mem_error}")
+                    add_system_message('error', f"❌ In-memory fallback also failed: {mem_error}")
                 
-                st.markdown("3. **Check for multiple Python installations:**")
-                st.markdown("   - Ensure you're using the correct Python environment")
-                st.markdown("   - Check if conda/pyenv is affecting SQLite detection")
+                add_system_message('info', "3. **Check for multiple Python installations:**")
+                add_system_message('info', "   - Ensure you're using the correct Python environment")
+                add_system_message('info', "   - Check if conda/pyenv is affecting SQLite detection")
                 
                 return None
             
             # Handle other Chroma errors
             else:
-                st.error(f"❌ Failed to load Chroma vector store: {chroma_error}")
-                st.info("💡 This might be due to:")
-                st.info("- Corrupted vector store files")
-                st.info("- Missing or incompatible embeddings model")
-                st.info("- Permission issues with the persist directory")
+                add_system_message('error', f"❌ Failed to load Chroma vector store: {chroma_error}")
+                add_system_message('info', "💡 This might be due to:")
+                add_system_message('info', "- Corrupted vector store files")
+                add_system_message('info', "- Missing or incompatible embeddings model")
+                add_system_message('info', "- Permission issues with the persist directory")
                 return None
                 
     except Exception as e:
-        st.error(f"❌ Unexpected error loading vector store: {e}")
+        add_system_message('error', f"❌ Unexpected error loading vector store: {e}")
         return None
 
 

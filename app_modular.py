@@ -8,7 +8,15 @@ Refractory High-Entropy Alloys (RHEA) using vector embeddings and LLM.
 try:
     import sqlite_patch
 except ImportError:
-    pass  # Patch not available, continue with system SQLite
+    # Fallback: Apply patch directly if sqlite_patch module is not available
+    try:
+        __import__('pysqlite3')
+        import sys
+        sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+        print("✅ Applied direct SQLite patch")
+    except ImportError:
+        print("⚠️ pysqlite3-binary not available, using system SQLite")
+        pass  # Continue with system SQLite
 
 import streamlit as st
 import os
@@ -74,6 +82,10 @@ def initialize_session_state():
 
 def load_initial_data():
     """Load initial data if not already loaded"""
+    # Initialize system status messages
+    if 'system_messages' not in st.session_state:
+        st.session_state.system_messages = []
+    
     # Load paper list
     if not st.session_state.paper_list:
         st.session_state.paper_list, st.session_state.tracker_df = load_paper_list()
@@ -93,11 +105,17 @@ def load_initial_data():
             st.session_state.llm = load_llm(st.session_state.available_models[0])
             st.session_state.current_model = st.session_state.available_models[0]
     
-    # Show LLM status
+    # Store LLM status message in session state instead of displaying directly
     if st.session_state.llm is None:
-        st.info("🤖 **LLM Mode**: Paper Management & Note-Taking Only - LLM features are disabled. You can still search papers, view previews, and take notes.")
+        st.session_state.system_messages.append({
+            'type': 'info',
+            'message': "🤖 **LLM Mode**: Paper Management & Note-Taking Only - LLM features are disabled. You can still search papers, view previews, and take notes."
+        })
     else:
-        st.success(f"🤖 **LLM Mode**: Full AI Features Enabled - Using {st.session_state.current_model}")
+        st.session_state.system_messages.append({
+            'type': 'success',
+            'message': f"🤖 **LLM Mode**: Full AI Features Enabled - Using {st.session_state.current_model}"
+        })
 
 
 def display_sidebar() -> tuple:
@@ -111,16 +129,6 @@ def display_sidebar() -> tuple:
     with st.sidebar:
         # Theme toggle
         display_theme_toggle()
-        st.divider()
-        
-        # LLM Status indicator
-        if st.session_state.llm is None:
-            st.warning("⚠️ LLM Not Available")
-            st.caption("Paper search and note-taking only")
-        else:
-            st.success("✅ LLM Available")
-            st.caption(f"Model: {st.session_state.current_model}")
-        
         st.divider()
         
         # Create tabs for main sections
@@ -142,6 +150,28 @@ def display_sidebar() -> tuple:
                     st.session_state.available_models,
                     help="Available Ollama models on your system"
                 )
+                
+                # Check if model selection changed and reload LLM if needed
+                if llm_model != st.session_state.current_model:
+                    with st.spinner(f"Loading {llm_model}..."):
+                        st.session_state.llm = load_llm(llm_model)
+                        st.session_state.current_model = llm_model
+                        if st.session_state.llm is None:
+                            st.error(f"Failed to load {llm_model}")
+                        else:
+                            st.success(f"Successfully loaded {llm_model}")
+                
+                # Load LLM button (if not loaded)
+                if st.session_state.llm is None:
+                    if st.button("🤖 Load LLM", help="Attempt to load the selected LLM model", key="load_llm"):
+                        with st.spinner(f"Loading {llm_model}..."):
+                            st.session_state.llm = load_llm(llm_model)
+                            st.session_state.current_model = llm_model
+                            if st.session_state.llm is None:
+                                st.error(f"Failed to load {llm_model}")
+                            else:
+                                st.success(f"Successfully loaded {llm_model}")
+                                st.rerun()
                 
                 # Refresh models button
                 if st.button("🔄 Refresh Models", help="Refresh available models", key="refresh_models"):
@@ -169,8 +199,30 @@ def display_sidebar() -> tuple:
             
             st.divider()
             
-            # Vector Store Status
-            with st.expander("📊 Vector Store Status", expanded=False):
+            # System Status
+            with st.expander("📊 System Status", expanded=False):
+                # Display system messages from session state
+                if st.session_state.system_messages:
+                    for i, msg in enumerate(st.session_state.system_messages):
+                        if msg['type'] == 'info':
+                            st.info(msg['message'])
+                        elif msg['type'] == 'success':
+                            st.success(msg['message'])
+                        elif msg['type'] == 'warning':
+                            st.warning(msg['message'])
+                        elif msg['type'] == 'error':
+                            st.error(msg['message'])
+                    
+                    # Add clear button for system messages
+                    if st.button("🗑️ Clear Messages", key="clear_system_messages"):
+                        st.session_state.system_messages = []
+                        st.rerun()
+                else:
+                    st.info("No system messages to display")
+                
+                st.divider()
+                
+                # Vector Store Status
                 if st.session_state.vectorstore:
                     st.success("✅ Vector store loaded")
                     
@@ -207,10 +259,6 @@ def display_question_section(llm_model: str, selected_papers: List[str], search_
         placeholder="Ask about precipitation strengthening, microstructure, mechanical properties, etc.",
         height=100
     )
-    
-    # Show LLM status for this section
-    if st.session_state.llm is None:
-        st.info("💡 **Note**: LLM features are disabled. You can still search papers and view results, but AI-powered optimization and answer generation are not available.")
     
     # Question optimization section
     col_opt1, col_opt2 = st.columns([1, 1])
@@ -711,6 +759,9 @@ def main():
     # Initialize session state
     initialize_session_state()
     
+    # Clear old system messages at the start of each run
+    st.session_state.system_messages = []
+    
     # Header
     st.markdown('<h1 class="main-header">🔬 Paper Search & QA System</h1>', unsafe_allow_html=True)
     
@@ -734,7 +785,7 @@ def main():
         tab1, tab2, tab3, tab4 = st.tabs(["💬 Ask Question", "🖼️ Paper Preview", "🕸️ Paper Network", "🌐 Scholar Abstract Scraper"])
     else:
         # LLM is not available - hide Paper Network tab
-        tab1, tab2, tab4 = st.tabs(["💬 Ask Question", "🖼️ Paper Preview", "🌐 Scholar Abstract Scraper"])
+        tab2, tab4 = st.tabs(["🖼️ Paper Preview", "🌐 Scholar Abstract Scraper"])
     
     with tab1:
         col_ask, col_suggest = st.columns([1, 1.5])
