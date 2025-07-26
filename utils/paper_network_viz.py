@@ -8,8 +8,15 @@ import plotly.graph_objects as go
 import networkx as nx
 import numpy as np
 import tempfile
-from graphviz import Source
 import os
+
+# Try to import graphviz, but make it optional
+try:
+    from graphviz import Source
+    GRAPHVIZ_AVAILABLE = True
+except ImportError:
+    GRAPHVIZ_AVAILABLE = False
+    Source = None
 
 def plot_mechanism_network_interactive(paper_metadata):
     """
@@ -87,6 +94,11 @@ def render_dot_flowchart(dot_code):
     Args:
         dot_code (str): DOT code string.
     """
+    if not GRAPHVIZ_AVAILABLE:
+        st.warning("⚠️ **Graphviz not available**: Cannot render DOT flowchart. Install graphviz with `pip install graphviz`")
+        st.code(dot_code, language='dot')
+        return
+    
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             dot_path = os.path.join(tmpdir, "flowchart.dot")

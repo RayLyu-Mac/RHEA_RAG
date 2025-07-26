@@ -8,7 +8,14 @@ import streamlit as st
 import os
 import sys
 from typing import List, Optional
-import graphviz
+
+# Try to import graphviz, but make it optional
+try:
+    import graphviz
+    GRAPHVIZ_AVAILABLE = True
+except ImportError:
+    GRAPHVIZ_AVAILABLE = False
+    graphviz = None
 
 # Add parent directory to path to import vectorized module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -715,8 +722,13 @@ def main():
     # Display sidebar and get settings
     selected_papers, llm_model, search_type, num_results = display_sidebar()
     
-    # Main content area with tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["💬 Ask Question", "🖼️ Paper Preview", "🕸️ Paper Network", "🌐 Scholar Abstract Scraper"])
+    # Main content area with tabs - conditionally create tabs based on LLM availability
+    if st.session_state.llm is not None:
+        # LLM is available - show all tabs including Paper Network
+        tab1, tab2, tab3, tab4 = st.tabs(["💬 Ask Question", "🖼️ Paper Preview", "🕸️ Paper Network", "🌐 Scholar Abstract Scraper"])
+    else:
+        # LLM is not available - hide Paper Network tab
+        tab1, tab2, tab4 = st.tabs(["💬 Ask Question", "🖼️ Paper Preview", "🌐 Scholar Abstract Scraper"])
     
     with tab1:
         col_ask, col_suggest = st.columns([1, 1.5])
@@ -739,15 +751,9 @@ def main():
     with tab2:
         display_preview_section(selected_papers)
     
-    with tab3:
-        if st.session_state.llm is None:
-            st.info("🤖 **LLM Features Disabled**: Paper grouping and RAG flowchart generation require an LLM. Please load an LLM model to access these features.")
-            st.markdown("**Available without LLM:**")
-            st.markdown("- 📚 Paper search and preview")
-            st.markdown("- 📝 Note-taking and management")
-            st.markdown("- 🖼️ Figure viewing")
-            st.markdown("- 🌐 Scholar abstract scraping")
-        else:
+    # Only show tab3 (Paper Network) if LLM is available
+    if st.session_state.llm is not None:
+        with tab3:
             st.markdown('### 🤖 LLM-Powered Paper Grouping Table')
             group_question = st.text_input('Enter a grouping question for the table (e.g., "What type of precipitate is present in the paper?")', value='')
             if 'llm_grouped_table' not in st.session_state:
@@ -825,6 +831,12 @@ def main():
             st.markdown('---')
             st.markdown('### 🗺️ RAG Pipeline Flowchart Generator')
             st.write('Select papers on the left, then generate a RAG pipeline flowchart using LLM.')
+            
+            # Check if graphviz is available
+            if not GRAPHVIZ_AVAILABLE:
+                st.warning("⚠️ **Graphviz not available**: The `graphviz` package is not installed. DOT code generation will work, but visualization will be disabled.")
+                st.info("To enable visualization, install graphviz: `pip install graphviz`")
+            
             dot_code = st.session_state.get('rag_dot_code', None)
             col_dot, col_graph = st.columns([1, 2])
             with col_dot:
@@ -853,11 +865,15 @@ def main():
                 # Show DOT code and render if available
                 dot_code = st.session_state.get('rag_dot_code', None)
                 if dot_code:
-                    try:
-                        graph = graphviz.Source(dot_code)
-                        st.graphviz_chart(graph.source)
-                    except Exception as e:
-                        st.error(f"Failed to render DOT graph: {e}")
+                    if GRAPHVIZ_AVAILABLE:
+                        try:
+                            graph = graphviz.Source(dot_code)
+                            st.graphviz_chart(graph.source)
+                        except Exception as e:
+                            st.error(f"Failed to render DOT graph: {e}")
+                    else:
+                        st.info("📋 DOT code generated successfully! Install graphviz to visualize the flowchart.")
+                        st.markdown("**Installation command:** `pip install graphviz`")
     
     with tab4:
         display_scholar_section()
