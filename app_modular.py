@@ -86,18 +86,46 @@ def load_initial_data():
     if 'system_messages' not in st.session_state:
         st.session_state.system_messages = []
     
-    # Load vector store first (needed for paper list)
-    if st.session_state.vectorstore is None:
-        with st.spinner("Loading vector store..."):
-            st.session_state.vectorstore = load_vectorstore()
-    
-    # Load paper list (now from vector store)
+    # Load paper list from vectorization tracker CSV
     if not st.session_state.paper_list:
-        st.session_state.paper_list, st.session_state.tracker_df = load_paper_list()
+        with st.spinner("Loading papers from vectorization tracker..."):
+            st.session_state.paper_list, st.session_state.tracker_df = load_paper_list()
+        
+        # Add paper loading status to system messages
+        if st.session_state.paper_list:
+            paper_count = len(st.session_state.paper_list)
+            st.session_state.system_messages.append({
+                'type': 'success',
+                'message': f"📚 Loaded {paper_count} papers from vectorization tracker CSV"
+            })
+            
+            # Add folder distribution info
+            folders = {}
+            for paper in st.session_state.paper_list:
+                folder = paper['folder']
+                if folder not in folders:
+                    folders[folder] = 0
+                folders[folder] += 1
+            
+            folder_info = ", ".join([f"{folder}: {count}" for folder, count in sorted(folders.items())])
+            st.session_state.system_messages.append({
+                'type': 'info',
+                'message': f"📁 Papers organized by folders: {folder_info}"
+            })
+        else:
+            st.session_state.system_messages.append({
+                'type': 'error',
+                'message': "❌ Failed to load papers from vectorization tracker CSV"
+            })
     
     # Load available models
     if not st.session_state.available_models or st.session_state.available_models == ["qwen3:14b", "gemma3:4b"]:
         st.session_state.available_models = get_available_ollama_models()
+    
+    # Load vector store
+    if st.session_state.vectorstore is None:
+        with st.spinner("Loading vector store..."):
+            st.session_state.vectorstore = load_vectorstore()
     
     # Try to load LLM (but don't fail if it doesn't work)
     if st.session_state.llm is None and st.session_state.available_models:
@@ -219,6 +247,36 @@ def display_sidebar() -> tuple:
                         st.rerun()
                 else:
                     st.info("No system messages to display")
+                
+                st.divider()
+                
+                # Paper Loading Status
+                if st.session_state.paper_list:
+                    st.success("✅ Papers loaded from vectorization tracker")
+                    
+                    # Show paper statistics
+                    paper_count = len(st.session_state.paper_list)
+                    total_figures = sum(paper.get('figure_count', 0) for paper in st.session_state.paper_list)
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Total Papers", paper_count)
+                    with col2:
+                        st.metric("Total Figures", total_figures)
+                    
+                    # Show folder distribution
+                    folders = {}
+                    for paper in st.session_state.paper_list:
+                        folder = paper['folder']
+                        if folder not in folders:
+                            folders[folder] = 0
+                        folders[folder] += 1
+                    
+                    st.markdown("**Folder Distribution:**")
+                    for folder, count in sorted(folders.items()):
+                        st.caption(f"• {folder}: {count} papers")
+                else:
+                    st.error("❌ No papers loaded")
                 
                 st.divider()
                 
@@ -783,29 +841,33 @@ def main():
     if st.session_state.llm is not None:
         # LLM is available - show all tabs including Paper Network
         tab1, tab2, tab3, tab4 = st.tabs(["💬 Ask Question", "🖼️ Paper Preview", "🕸️ Paper Network", "🌐 Scholar Abstract Scraper"])
-        
-        with tab1:
-            col_ask, col_suggest = st.columns([1, 1.5])
-            with col_ask:
-                st.markdown(create_glass_card("💬 Ask Questions"), unsafe_allow_html=True)
-                gap_toggle = st.checkbox("Identify Research Gaps", value=False, key="gap_toggle", disabled=st.session_state.llm is None, help="LLM required for research gap analysis")
-                display_question_section(llm_model, selected_papers, search_type, num_results, gap_toggle=gap_toggle)
-            with col_suggest:
-                # At the very top of the right column: toggle, year, and results
-                import datetime
-                current_year = datetime.datetime.now().year
-                years = ["All"] + [str(y) for y in range(current_year, 1999, -1)]
-                col_year, col_toggle = st.columns([1, 1])
-                with col_year:
-                    scholar_year = st.selectbox("Year limit", years, index=0, key="year_limit", label_visibility="visible")
-                with col_toggle:
-                    scholar_toggle = st.checkbox("Suggest follow-up reading", value=False)
-                scholar_search_and_display()
+    else:
+        # LLM is not available - hide Paper Network tab
+        tab2, tab4 = st.tabs(["🖼️ Paper Preview", "🌐 Scholar Abstract Scraper"])
+    
+    with tab1:
+        col_ask, col_suggest = st.columns([1, 1.5])
+        with col_ask:
+            st.markdown(create_glass_card("💬 Ask Questions"), unsafe_allow_html=True)
+            gap_toggle = st.checkbox("Identify Research Gaps", value=False, key="gap_toggle", disabled=st.session_state.llm is None, help="LLM required for research gap analysis")
+            display_question_section(llm_model, selected_papers, search_type, num_results, gap_toggle=gap_toggle)
+        with col_suggest:
+            # At the very top of the right column: toggle, year, and results
+            import datetime
+            current_year = datetime.datetime.now().year
+            years = ["All"] + [str(y) for y in range(current_year, 1999, -1)]
+            col_year, col_toggle = st.columns([1, 1])
+            with col_year:
+                scholar_year = st.selectbox("Year limit", years, index=0, key="year_limit", label_visibility="visible")
+            with col_toggle:
+                scholar_toggle = st.checkbox("Suggest follow-up reading", value=False)
+            scholar_search_and_display()
 
-        with tab2:
-            display_preview_section(selected_papers)
-        
-        # Only show tab3 (Paper Network) if LLM is available
+    with tab2:
+        display_preview_section(selected_papers)
+    
+    # Only show tab3 (Paper Network) if LLM is available
+    if st.session_state.llm is not None:
         with tab3:
             st.markdown('### 🤖 LLM-Powered Paper Grouping Table')
             group_question = st.text_input('Enter a grouping question for the table (e.g., "What type of precipitate is present in the paper?")', value='')
@@ -927,18 +989,9 @@ def main():
                     else:
                         st.info("📋 DOT code generated successfully! Install graphviz to visualize the flowchart.")
                         st.markdown("**Installation command:** `pip install graphviz`")
-        
-        with tab4:
-            display_scholar_section()
-    else:
-        # LLM is not available - show limited tabs
-        tab2, tab4 = st.tabs(["🖼️ Paper Preview", "🌐 Scholar Abstract Scraper"])
-        
-        with tab2:
-            display_preview_section(selected_papers)
-        
-        with tab4:
-            display_scholar_section()
+    
+    with tab4:
+        display_scholar_section()
 
 
 if __name__ == "__main__":

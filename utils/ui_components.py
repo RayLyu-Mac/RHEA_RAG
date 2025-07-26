@@ -227,11 +227,30 @@ def display_paper_selection(paper_list, folder_order, folder_icons):
                     col_paper, col_view = st.columns([7, 1])
                     with col_paper:
                         checked = st.session_state.get(f"paper_{paper['file_name']}", False)
+                        
+                        # Create enhanced tooltip with vectorization info
+                        tooltip_parts = [f"Figures: {paper['figure_count']}"]
+                        if paper.get('vectorized_model'):
+                            tooltip_parts.append(f"Model: {paper['vectorized_model']}")
+                        if paper.get('vectorized_date'):
+                            # Format the date for display
+                            try:
+                                from datetime import datetime
+                                date_str = paper['vectorized_date']
+                                if 'T' in date_str:
+                                    date_obj = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                                    formatted_date = date_obj.strftime('%Y-%m-%d')
+                                    tooltip_parts.append(f"Vectorized: {formatted_date}")
+                            except:
+                                tooltip_parts.append(f"Vectorized: {paper['vectorized_date'][:10]}")
+                        
+                        tooltip_text = " | ".join(tooltip_parts)
+                        
                         if st.checkbox(
                             paper['file_name'].replace('.pdf', ''),
                             key=f"paper_{paper['file_name']}",
                             value=checked,
-                            help=f"Figures: {paper['figure_count']}"
+                            help=tooltip_text
                         ):
                             selected_papers.append(paper['file_name'])
                     with col_view:
