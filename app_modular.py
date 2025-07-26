@@ -688,6 +688,10 @@ def display_preview_section(selected_papers: List[str]):
                                 break
                     except Exception as e:
                         st.caption(f"🔍 Debug: Could not get title from vector store: {e}")
+                        # If vector store search fails, use filename as title
+                        actual_title = None
+                else:
+                    st.caption("🔍 Debug: Vector store not available for title retrieval")
                 
                 # Use actual title if available, otherwise use filename
                 display_title = actual_title if actual_title else paper_name.replace('.pdf', '').replace('_', ' ')

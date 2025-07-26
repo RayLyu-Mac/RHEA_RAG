@@ -36,31 +36,10 @@ def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nom
             add_system_message('info', "💡 Please ensure the vector store has been created and the path is correct.")
             return None
         
-        # Try to load embeddings - first try Ollama, then fallback to SentenceTransformer
-        embeddings = None
+        # Try to load Chroma first without specifying embedding function
         try:
-            print("🔍 Debug: Attempting to load Ollama embeddings...")
-            embeddings = OllamaEmbeddings(model="nomic-embed-text:latest")
-            add_system_message('success', "✅ Loaded Ollama embeddings successfully")
-        except Exception as ollama_error:
-            print(f"⚠️ Debug: Ollama embeddings failed: {ollama_error}")
-            add_system_message('warning', f"⚠️ Ollama embeddings failed: {ollama_error}")
-            
-            # Fallback to SentenceTransformer embeddings
-            try:
-                print("🔍 Debug: Attempting to load SentenceTransformer embeddings...")
-                from langchain_community.embeddings import SentenceTransformerEmbeddings
-                embeddings = SentenceTransformerEmbeddings(model_name="nomic-ai/nomic-embed-text-v1")
-                add_system_message('success', "✅ Loaded SentenceTransformer embeddings as fallback")
-            except Exception as st_error:
-                print(f"❌ Debug: SentenceTransformer embeddings also failed: {st_error}")
-                add_system_message('error', f"❌ Both Ollama and SentenceTransformer embeddings failed")
-                add_system_message('info', "💡 Please ensure either Ollama is running or sentence-transformers is installed.")
-                return None
-        
-        # Try to load Chroma with specific error handling
-        try:
-            vectorstore = Chroma(persist_directory=persist_directory, embedding_function=embeddings)
+            print("🔍 Debug: Attempting to load Chroma without embedding function...")
+            vectorstore = Chroma(persist_directory=persist_directory)
             
             # Test the vector store by trying to get collection info
             try:
@@ -68,6 +47,7 @@ def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nom
                 if collection:
                     count = collection.count()
                     add_system_message('success', f"✅ Vector store loaded successfully! Found {count} documents.")
+                    print(f"🔍 Debug: Vector store loaded with {count} documents")
                 else:
                     add_system_message('warning', "⚠️ Vector store loaded but collection appears empty.")
             except Exception as test_error:
@@ -77,6 +57,7 @@ def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nom
             
         except Exception as chroma_error:
             error_str = str(chroma_error)
+            print(f"🔍 Debug: Chroma load error: {chroma_error}")
             
             # Handle specific SQLite version error
             if "sqlite3" in error_str.lower() and "3.35.0" in error_str:
@@ -99,7 +80,7 @@ def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nom
                 # Try in-memory fallback
                 add_system_message('info', "🔄 Attempting to use in-memory Chroma as fallback...")
                 try:
-                    vectorstore = Chroma(embedding_function=embeddings)
+                    vectorstore = Chroma()
                     add_system_message('success', "✅ Successfully loaded in-memory Chroma vector store!")
                     add_system_message('warning', "⚠️ Note: This is an empty in-memory store. You'll need to re-vectorize your papers.")
                     return vectorstore
@@ -370,50 +351,57 @@ def get_paper_abstract_and_keywords(vectorstore, paper_name: str) -> Tuple[Optio
         
         print(f"🔍 Debug: Attempting to search vector store for {paper_name}")
         
-        # Search for child document (abstract) of this paper
-        results = vectorstore.similarity_search(
-            f"abstract {paper_name}", 
-            k=10,
-            filter={"file_name": paper_name}
-        )
-        
-        print(f"🔍 Debug: Found {len(results)} results for {paper_name}")
-        
-        abstract_content = None
-        keywords = None
-        
-        # Find the child document (abstract)
-        for i, doc in enumerate(results):
-            print(f"🔍 Debug: Result {i+1} for {paper_name}:")
-            print(f"   - file_name: {doc.metadata.get('file_name')}")
-            print(f"   - document_type: {doc.metadata.get('document_type')}")
-            print(f"   - title: {doc.metadata.get('title', 'None')}")
-            print(f"   - content_length: {len(doc.page_content)}")
-            print(f"   - content_preview: {doc.page_content[:100]}...")
+        # Try to search for child document (abstract) of this paper
+        try:
+            results = vectorstore.similarity_search(
+                f"abstract {paper_name}", 
+                k=10,
+                filter={"file_name": paper_name}
+            )
             
-            if (doc.metadata.get('file_name') == paper_name and 
-                doc.metadata.get('document_type') == 'child'):
-                abstract_content = doc.page_content
-                keywords = doc.metadata.get('keywords', '')
-                print(f"✅ Found child document (abstract) for {paper_name}")
-                break
-        
-        # If no child document found, try to find any document from this paper
-        if not abstract_content:
-            print(f"🔍 Debug: No child document found, looking for any document from {paper_name}")
+            print(f"🔍 Debug: Found {len(results)} results for {paper_name}")
+            
+            abstract_content = None
+            keywords = None
+            
+            # Find the child document (abstract)
             for i, doc in enumerate(results):
-                if doc.metadata.get('file_name') == paper_name:
-                    # Extract first 500 characters as abstract
-                    abstract_content = doc.page_content[:500] + "..." if len(doc.page_content) > 500 else doc.page_content
+                print(f"🔍 Debug: Result {i+1} for {paper_name}:")
+                print(f"   - file_name: {doc.metadata.get('file_name')}")
+                print(f"   - document_type: {doc.metadata.get('document_type')}")
+                print(f"   - title: {doc.metadata.get('title', 'None')}")
+                print(f"   - content_length: {len(doc.page_content)}")
+                print(f"   - content_preview: {doc.page_content[:100]}...")
+                
+                if (doc.metadata.get('file_name') == paper_name and 
+                    doc.metadata.get('document_type') == 'child'):
+                    abstract_content = doc.page_content
                     keywords = doc.metadata.get('keywords', '')
-                    print(f"✅ Found any document for {paper_name}, using first 500 chars")
+                    print(f"✅ Found child document (abstract) for {paper_name}")
                     break
-        
-        print(f"🔍 Debug: Final result for {paper_name}:")
-        print(f"   - abstract_content: {len(abstract_content) if abstract_content else 0} chars")
-        print(f"   - keywords: {keywords}")
-        
-        return abstract_content, keywords
+            
+            # If no child document found, try to find any document from this paper
+            if not abstract_content:
+                print(f"🔍 Debug: No child document found, looking for any document from {paper_name}")
+                for i, doc in enumerate(results):
+                    if doc.metadata.get('file_name') == paper_name:
+                        # Extract first 500 characters as abstract
+                        abstract_content = doc.page_content[:500] + "..." if len(doc.page_content) > 500 else doc.page_content
+                        keywords = doc.metadata.get('keywords', '')
+                        print(f"✅ Found any document for {paper_name}, using first 500 chars")
+                        break
+            
+            print(f"🔍 Debug: Final result for {paper_name}:")
+            print(f"   - abstract_content: {len(abstract_content) if abstract_content else 0} chars")
+            print(f"   - keywords: {keywords}")
+            
+            return abstract_content, keywords
+            
+        except Exception as search_error:
+            print(f"❌ Error in similarity search for {paper_name}: {search_error}")
+            # If similarity search fails, it's likely due to embedding issues
+            # Fall back to CSV data
+            raise search_error
         
     except Exception as e:
         print(f"❌ Error in get_paper_abstract_and_keywords for {paper_name}: {e}")
