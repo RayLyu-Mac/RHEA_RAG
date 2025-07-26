@@ -33,7 +33,7 @@ def test_vectorstore_loading():
         print("✅ SentenceTransformer import successful")
         
         # Test 4: Try to create embeddings
-        embeddings = SentenceTransformerEmbeddings(model_name="nomic-ai/nomic-embed-text-v1")
+        embeddings = SentenceTransformerEmbeddings(model_name="nomic-ai/nomic-embed-text-v1",model_kwargs={"trust_remote_code": True})
         print("✅ SentenceTransformer embeddings created successfully")
         
         # Test 5: Try to import Chroma
