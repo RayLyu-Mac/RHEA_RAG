@@ -36,10 +36,23 @@ def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nom
             add_system_message('info', "💡 Please ensure the vector store has been created and the path is correct.")
             return None
         
-        # Try to load Chroma first without specifying embedding function
+        # Load SentenceTransformer embeddings directly (no Ollama dependency)
+        embeddings = None
         try:
-            print("🔍 Debug: Attempting to load Chroma without embedding function...")
-            vectorstore = Chroma(persist_directory=persist_directory)
+            print("🔍 Debug: Loading SentenceTransformer embeddings...")
+            from langchain_community.embeddings import SentenceTransformerEmbeddings
+            embeddings = SentenceTransformerEmbeddings(model_name="nomic-ai/nomic-embed-text-v1")
+            add_system_message('success', "✅ Loaded SentenceTransformer embeddings")
+        except Exception as st_error:
+            print(f"❌ Debug: SentenceTransformer embeddings failed: {st_error}")
+            add_system_message('error', f"❌ Failed to load SentenceTransformer embeddings: {st_error}")
+            add_system_message('info', "💡 Please ensure sentence-transformers is installed: pip install sentence-transformers")
+            return None
+        
+        # Try to load Chroma with SentenceTransformer embeddings
+        try:
+            print("🔍 Debug: Loading Chroma with SentenceTransformer embeddings...")
+            vectorstore = Chroma(persist_directory=persist_directory, embedding_function=embeddings)
             
             # Test the vector store by trying to get collection info
             try:
@@ -80,7 +93,7 @@ def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nom
                 # Try in-memory fallback
                 add_system_message('info', "🔄 Attempting to use in-memory Chroma as fallback...")
                 try:
-                    vectorstore = Chroma()
+                    vectorstore = Chroma(embedding_function=embeddings)
                     add_system_message('success', "✅ Successfully loaded in-memory Chroma vector store!")
                     add_system_message('warning', "⚠️ Note: This is an empty in-memory store. You'll need to re-vectorize your papers.")
                     return vectorstore
