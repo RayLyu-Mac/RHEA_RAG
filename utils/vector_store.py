@@ -65,7 +65,7 @@ def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nom
                 st.markdown("1. **Update Python environment** (recommended):")
                 st.markdown("   ```bash")
                 st.markdown("   pip install --upgrade chromadb")
-                st.markdown("   pip install --upgrade pysqlite3-binary")
+                st.markdown("   pip install --upgrade pysqlite3-binary  # Optional")
                 st.markdown("   ```")
                 
                 st.markdown("2. **Use a different vector store backend:**")

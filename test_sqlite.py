@@ -167,7 +167,7 @@ def main():
     else:
         print("⚠️ Some tests failed. Please check the error messages above.")
         print("\n💡 Common solutions:")
-        print("1. Update packages: pip install --upgrade chromadb pysqlite3-binary")
+        print("1. Update packages: pip install --upgrade chromadb")
         print("2. Ensure Ollama is running: ollama serve")
         print("3. Pull the embedding model: ollama pull nomic-embed-text:latest")
         print("4. Check Python environment: python --version")

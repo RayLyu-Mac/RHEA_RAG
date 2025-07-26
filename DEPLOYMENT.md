@@ -64,14 +64,14 @@ OPENAI_API_KEY=your_openai_key_here
 
 1. **SQLite version compatibility error**
    - **Error**: "Your system has an unsupported version of sqlite3. Chroma requires sqlite3 ≥ 3.35.0"
-   - **Solutions**:
-     ```bash
-     # Update ChromaDB and SQLite
-     pip install --upgrade chromadb pysqlite3-binary
-     
-     # Or run the diagnostic script
-     python test_sqlite.py
-     ```
+       - **Solutions**:
+      ```bash
+      # Update ChromaDB
+      pip install --upgrade chromadb
+      
+      # Or run the diagnostic script
+      python test_sqlite.py
+      ```
    - **Alternative**: The app will attempt to use in-memory Chroma as fallback
 
 2. **ModuleNotFoundError: No module named 'graphviz'**
