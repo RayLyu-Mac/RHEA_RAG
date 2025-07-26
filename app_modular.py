@@ -86,18 +86,18 @@ def load_initial_data():
     if 'system_messages' not in st.session_state:
         st.session_state.system_messages = []
     
-    # Load paper list
+    # Load vector store first (needed for paper list)
+    if st.session_state.vectorstore is None:
+        with st.spinner("Loading vector store..."):
+            st.session_state.vectorstore = load_vectorstore()
+    
+    # Load paper list (now from vector store)
     if not st.session_state.paper_list:
         st.session_state.paper_list, st.session_state.tracker_df = load_paper_list()
     
     # Load available models
     if not st.session_state.available_models or st.session_state.available_models == ["qwen3:14b", "gemma3:4b"]:
         st.session_state.available_models = get_available_ollama_models()
-    
-    # Load vector store
-    if st.session_state.vectorstore is None:
-        with st.spinner("Loading vector store..."):
-            st.session_state.vectorstore = load_vectorstore()
     
     # Try to load LLM (but don't fail if it doesn't work)
     if st.session_state.llm is None and st.session_state.available_models:

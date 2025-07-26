@@ -23,8 +23,85 @@ def add_system_message(message_type: str, message: str):
 
 @st.cache_data
 def load_paper_list(tracker_path: str = "./vectorization_tracker.csv") -> Tuple[List[Dict], Optional[pd.DataFrame]]:
-    """Load the list of papers from the tracker CSV"""
+    """Load the list of papers from the vector store instead of CSV"""
     try:
+        # Try to get papers from vector store first (if available)
+        if 'vectorstore' in st.session_state and st.session_state.vectorstore is not None:
+            try:
+                # Get all documents from the vector store
+                collection = st.session_state.vectorstore._collection
+                if collection:
+                    # Get all documents from the collection
+                    results = collection.get()
+                    
+                    if results and 'metadatas' in results and results['metadatas']:
+                        paper_list = []
+                        seen_papers = set()  # To avoid duplicates
+                        
+                        # Debug: show metadata structure for first few items
+                        if len(results['metadatas']) > 0:
+                            sample_metadata = results['metadatas'][0]
+                            add_system_message('info', f"📊 Vector store metadata sample keys: {list(sample_metadata.keys())}")
+                        
+                        for metadata in results['metadatas']:
+                            file_name = metadata.get('file_name', '')
+                            
+                            # Skip if we've already processed this paper or if it's a meeting note
+                            if not file_name or file_name in seen_papers or metadata.get('content_type') == 'meeting_notes':
+                                continue
+                            
+                            seen_papers.add(file_name)
+                            
+                            # Extract folder information from metadata
+                            folder_name = "unknown"
+                            
+                            # Try different metadata fields for folder information
+                            if metadata.get('folder'):
+                                folder_name = metadata.get('folder')
+                            elif metadata.get('section'):
+                                folder_name = metadata.get('section')
+                            elif metadata.get('file_path'):
+                                # Extract from file path if available
+                                file_path = metadata.get('file_path')
+                                path_parts = file_path.replace('\\', '/').split('/')
+                                papers_index = -1
+                                for i, part in enumerate(path_parts):
+                                    if part == 'Papers':
+                                        papers_index = i
+                                        break
+                                
+                                if papers_index >= 0 and papers_index + 1 < len(path_parts):
+                                    folder_parts = path_parts[papers_index + 1:]
+                                    if len(folder_parts) >= 2:
+                                        folder_name = folder_parts[0]
+                            
+                            # Create paper info
+                            paper_info = {
+                                'file_name': file_name,
+                                'file_path': metadata.get('file_path', ''),
+                                'figure_count': metadata.get('figure_count', 0),
+                                'has_figures': metadata.get('has_figure_descriptions', False),
+                                'folder': folder_name,
+                                'folder_path': folder_name,  # Simplified for now
+                                'top_level_folder': folder_name,
+                                'rel_folder_path': folder_name,
+                                'abstract': metadata.get('abstract', ''),
+                                'title': metadata.get('title', file_name),
+                            }
+                            paper_list.append(paper_info)
+                        
+                        if paper_list:
+                            add_system_message('success', f"✅ Loaded {len(paper_list)} papers from vector store")
+                            return paper_list, None
+                        else:
+                            add_system_message('warning', "No papers found in vector store")
+                    else:
+                        add_system_message('warning', "Vector store appears to be empty")
+                        
+            except Exception as e:
+                add_system_message('warning', f"Failed to load papers from vector store: {e}")
+        
+        # Fallback to CSV if vector store method fails
         if os.path.exists(tracker_path):
             df = pd.read_csv(tracker_path)
             # Filter only vectorized papers
@@ -78,7 +155,7 @@ def load_paper_list(tracker_path: str = "./vectorization_tracker.csv") -> Tuple[
             
             # Add success message for paper loading
             if paper_list:
-                add_system_message('success', f"✅ Loaded {len(paper_list)} papers from vectorization tracker")
+                add_system_message('success', f"✅ Loaded {len(paper_list)} papers from vectorization tracker (fallback)")
             
             return paper_list, df
         else:
