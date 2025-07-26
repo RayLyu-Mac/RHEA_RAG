@@ -36,13 +36,27 @@ def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nom
             add_system_message('info', "💡 Please ensure the vector store has been created and the path is correct.")
             return None
         
-        # Try to load embeddings
+        # Try to load embeddings - first try Ollama, then fallback to SentenceTransformer
+        embeddings = None
         try:
+            print("🔍 Debug: Attempting to load Ollama embeddings...")
             embeddings = OllamaEmbeddings(model="nomic-embed-text:latest")
-        except Exception as emb_error:
-            add_system_message('error', f"❌ Failed to load embeddings: {emb_error}")
-            add_system_message('info', "💡 Please ensure Ollama is running and the 'nomic-embed-text:latest' model is available.")
-            return None
+            add_system_message('success', "✅ Loaded Ollama embeddings successfully")
+        except Exception as ollama_error:
+            print(f"⚠️ Debug: Ollama embeddings failed: {ollama_error}")
+            add_system_message('warning', f"⚠️ Ollama embeddings failed: {ollama_error}")
+            
+            # Fallback to SentenceTransformer embeddings
+            try:
+                print("🔍 Debug: Attempting to load SentenceTransformer embeddings...")
+                from langchain_community.embeddings import SentenceTransformerEmbeddings
+                embeddings = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
+                add_system_message('success', "✅ Loaded SentenceTransformer embeddings as fallback")
+            except Exception as st_error:
+                print(f"❌ Debug: SentenceTransformer embeddings also failed: {st_error}")
+                add_system_message('error', f"❌ Both Ollama and SentenceTransformer embeddings failed")
+                add_system_message('info', "💡 Please ensure either Ollama is running or sentence-transformers is installed.")
+                return None
         
         # Try to load Chroma with specific error handling
         try:

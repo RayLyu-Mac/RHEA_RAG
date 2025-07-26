@@ -11,4 +11,5 @@ networkx>=3.0
 requests>=2.28.0
 scholarly>=1.7.0
 graphviz>=0.20.0
-Pillow>=9.0.0 
+Pillow>=9.0.0
+sentence-transformers>=2.2.0 
