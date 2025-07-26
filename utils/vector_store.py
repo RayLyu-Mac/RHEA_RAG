@@ -176,9 +176,9 @@ def search_papers(vectorstore, question: str, selected_papers: Optional[List[str
 **Vectorization Model:** {vectorized_model}
 **Content Chunks:** {chunk_count}
 
-This paper has been processed and vectorized in the database. The full content and abstract are available through the vector store when Ollama is running.
+This paper has been processed and vectorized in the database. The full content and abstract are available through the vector store when embeddings are accessible.
 
-**Note:** To access the complete paper content, ensure Ollama is running and the vector store is accessible."""
+**Note:** To access the complete paper content, ensure the vector store is properly loaded."""
                     
                     doc = Document(
                         page_content=content,
@@ -328,9 +328,9 @@ This paper has been processed and vectorized in the database. The full content a
 **Vectorization Model:** {vectorized_model}
 **Content Chunks:** {chunk_count}
 
-This paper has been processed and vectorized in the database. The full content and abstract are available through the vector store when Ollama is running.
+This paper has been processed and vectorized in the database. The full content and abstract are available through the vector store when embeddings are accessible.
 
-**Note:** To access the complete paper content, ensure Ollama is running and the vector store is accessible."""
+**Note:** To access the complete paper content, ensure the vector store is properly loaded."""
                     
                     doc = Document(
                         page_content=content,
@@ -444,9 +444,9 @@ def get_paper_abstract_and_keywords(vectorstore, paper_name: str) -> Tuple[Optio
 **Vectorization Model:** {vectorized_model}
 **Content Chunks:** {chunk_count}
 
-This paper has been processed and vectorized in the database. The full content and abstract are available through the vector store when Ollama is running. 
+This paper has been processed and vectorized in the database. The full content and abstract are available through the vector store when embeddings are accessible. 
 
-**Note:** To access the complete paper content, ensure Ollama is running and the vector store is accessible."""
+**Note:** To access the complete paper content, ensure the vector store is properly loaded."""
                     
                     keywords = f"RHEA, materials science, {folder}, research paper, vectorized"
                     

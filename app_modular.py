@@ -722,7 +722,7 @@ def display_preview_section(selected_papers: List[str]):
                                     unsafe_allow_html=True
                                 )
                     else:
-                        st.warning("⚠️ No content available from vector store. This may be due to Ollama not being available.")
+                        st.warning("⚠️ No content available from vector store. This may be due to embedding model issues.")
                     
                     # Display keywords
                     if keywords:
