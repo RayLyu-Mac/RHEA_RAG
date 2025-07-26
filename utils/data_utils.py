@@ -15,15 +15,12 @@ def load_paper_list(tracker_path: str = "./vectorization_tracker.csv") -> Tuple[
     """Load the list of papers from the tracker CSV"""
     try:
         if os.path.exists(tracker_path):
-            st.info(f"📊 Loading papers from vectorization tracker: {os.path.basename(tracker_path)}")
             df = pd.read_csv(tracker_path)
             
             # Show loading progress
             total_papers = len(df)
             vectorized_papers = df[df['vectorized'] == True]
             vectorized_count = len(vectorized_papers)
-            
-            st.success(f"✅ Loaded {vectorized_count}/{total_papers} vectorized papers from tracker")
             
             paper_list = []
             for _, row in vectorized_papers.iterrows():
@@ -47,24 +44,10 @@ def load_paper_list(tracker_path: str = "./vectorization_tracker.csv") -> Tuple[
                 }
                 paper_list.append(paper_info)
             
-            # Show folder distribution
-            folders = {}
-            for paper in paper_list:
-                folder = paper['folder']
-                if folder not in folders:
-                    folders[folder] = 0
-                folders[folder] += 1
-            
-            folder_info = ", ".join([f"{folder}: {count}" for folder, count in sorted(folders.items())])
-            st.info(f"📁 Papers organized by folders: {folder_info}")
-            
             return paper_list, df
         else:
-            st.error(f"❌ Vectorization tracker not found at: {tracker_path}")
-            st.info("💡 Please ensure the vectorization process has been completed and the tracker CSV exists.")
             return [], None
     except Exception as e:
-        st.error(f"❌ Failed to load paper list from tracker: {e}")
         return [], None
 
 

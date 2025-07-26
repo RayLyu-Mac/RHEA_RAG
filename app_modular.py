@@ -88,15 +88,24 @@ def load_initial_data():
     
     # Load paper list from vectorization tracker CSV
     if not st.session_state.paper_list:
+        # Add loading message
+        st.session_state.system_messages.append({
+            'type': 'info',
+            'message': "📊 Loading papers from vectorization tracker CSV..."
+        })
+        
         with st.spinner("Loading papers from vectorization tracker..."):
             st.session_state.paper_list, st.session_state.tracker_df = load_paper_list()
+        
+        # Remove loading message and add result
+        st.session_state.system_messages = [msg for msg in st.session_state.system_messages if "Loading papers" not in msg['message']]
         
         # Add paper loading status to system messages
         if st.session_state.paper_list:
             paper_count = len(st.session_state.paper_list)
             st.session_state.system_messages.append({
                 'type': 'success',
-                'message': f"📚 Loaded {paper_count} papers from vectorization tracker CSV"
+                'message': f"✅ Loaded {paper_count} papers from vectorization tracker CSV"
             })
             
             # Add folder distribution info
@@ -277,6 +286,24 @@ def display_sidebar() -> tuple:
                         st.caption(f"• {folder}: {count} papers")
                 else:
                     st.error("❌ No papers loaded")
+                    
+                    # Debug information for deployment issues
+                    with st.expander("🔍 Debug Info", expanded=False):
+                        st.markdown("**File Paths:**")
+                        st.code(f"Current working directory: {os.getcwd()}")
+                        st.code(f"CSV path: {os.path.abspath('./vectorization_tracker.csv')}")
+                        st.code(f"CSV exists: {os.path.exists('./vectorization_tracker.csv')}")
+                        
+                        if os.path.exists('./vectorization_tracker.csv'):
+                            try:
+                                import pandas as pd
+                                df = pd.read_csv('./vectorization_tracker.csv')
+                                st.code(f"CSV rows: {len(df)}")
+                                st.code(f"Vectorized papers: {len(df[df['vectorized'] == True])}")
+                            except Exception as e:
+                                st.code(f"CSV read error: {e}")
+                        else:
+                            st.code("CSV file not found")
                 
                 st.divider()
                 
@@ -817,8 +844,9 @@ def main():
     # Initialize session state
     initialize_session_state()
     
-    # Clear old system messages at the start of each run
-    st.session_state.system_messages = []
+    # Initialize system messages if not exists (but don't clear existing ones)
+    if 'system_messages' not in st.session_state:
+        st.session_state.system_messages = []
     
     # Header
     st.markdown('<h1 class="main-header">🔬 Paper Search & QA System</h1>', unsafe_allow_html=True)
@@ -843,7 +871,7 @@ def main():
         tab1, tab2, tab3, tab4 = st.tabs(["💬 Ask Question", "🖼️ Paper Preview", "🕸️ Paper Network", "🌐 Scholar Abstract Scraper"])
     else:
         # LLM is not available - hide Paper Network tab
-        tab2, tab4 = st.tabs(["🖼️ Paper Preview", "🌐 Scholar Abstract Scraper"])
+        tab1, tab2, tab4 = st.tabs(["💬 Ask Question", "🖼️ Paper Preview", "🌐 Scholar Abstract Scraper"])
     
     with tab1:
         col_ask, col_suggest = st.columns([1, 1.5])
