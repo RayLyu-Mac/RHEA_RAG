@@ -4,6 +4,12 @@ A Streamlit application for searching and querying research papers about
 Refractory High-Entropy Alloys (RHEA) using vector embeddings and LLM.
 """
 
+# Import SQLite patch first (before any Chroma imports)
+try:
+    import sqlite_patch
+except ImportError:
+    pass  # Patch not available, continue with system SQLite
+
 import streamlit as st
 import os
 import sys
