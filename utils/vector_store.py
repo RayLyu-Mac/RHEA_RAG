@@ -50,7 +50,7 @@ def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nom
             try:
                 print("🔍 Debug: Attempting to load SentenceTransformer embeddings...")
                 from langchain_community.embeddings import SentenceTransformerEmbeddings
-                embeddings = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
+                embeddings = SentenceTransformerEmbeddings(model_name="nomic-ai/nomic-embed-text-v1")
                 add_system_message('success', "✅ Loaded SentenceTransformer embeddings as fallback")
             except Exception as st_error:
                 print(f"❌ Debug: SentenceTransformer embeddings also failed: {st_error}")
