@@ -351,7 +351,10 @@ def get_paper_abstract_and_keywords(vectorstore, paper_name: str) -> Tuple[Optio
     """Get abstract (child document) and keywords for a specific paper"""
     try:
         if not vectorstore:
+            print(f"🔍 Debug: Vector store is None for {paper_name}")
             return None, None
+        
+        print(f"🔍 Debug: Attempting to search vector store for {paper_name}")
         
         # Search for child document (abstract) of this paper
         results = vectorstore.similarity_search(
@@ -360,29 +363,46 @@ def get_paper_abstract_and_keywords(vectorstore, paper_name: str) -> Tuple[Optio
             filter={"file_name": paper_name}
         )
         
+        print(f"🔍 Debug: Found {len(results)} results for {paper_name}")
+        
         abstract_content = None
         keywords = None
         
         # Find the child document (abstract)
-        for doc in results:
+        for i, doc in enumerate(results):
+            print(f"🔍 Debug: Result {i+1} for {paper_name}:")
+            print(f"   - file_name: {doc.metadata.get('file_name')}")
+            print(f"   - document_type: {doc.metadata.get('document_type')}")
+            print(f"   - title: {doc.metadata.get('title', 'None')}")
+            print(f"   - content_length: {len(doc.page_content)}")
+            print(f"   - content_preview: {doc.page_content[:100]}...")
+            
             if (doc.metadata.get('file_name') == paper_name and 
                 doc.metadata.get('document_type') == 'child'):
                 abstract_content = doc.page_content
                 keywords = doc.metadata.get('keywords', '')
+                print(f"✅ Found child document (abstract) for {paper_name}")
                 break
         
         # If no child document found, try to find any document from this paper
         if not abstract_content:
-            for doc in results:
+            print(f"🔍 Debug: No child document found, looking for any document from {paper_name}")
+            for i, doc in enumerate(results):
                 if doc.metadata.get('file_name') == paper_name:
                     # Extract first 500 characters as abstract
                     abstract_content = doc.page_content[:500] + "..." if len(doc.page_content) > 500 else doc.page_content
                     keywords = doc.metadata.get('keywords', '')
+                    print(f"✅ Found any document for {paper_name}, using first 500 chars")
                     break
+        
+        print(f"🔍 Debug: Final result for {paper_name}:")
+        print(f"   - abstract_content: {len(abstract_content) if abstract_content else 0} chars")
+        print(f"   - keywords: {keywords}")
         
         return abstract_content, keywords
         
     except Exception as e:
+        print(f"❌ Error in get_paper_abstract_and_keywords for {paper_name}: {e}")
         # Fallback: Try to get paper info from CSV data if vector store fails
         try:
             add_system_message('warning', f"⚠️ Vector store search failed for {paper_name}, trying CSV fallback")

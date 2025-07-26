@@ -661,17 +661,44 @@ def display_preview_section(selected_papers: List[str]):
         for paper_name in selected_papers:
             paper_info = next((p for p in st.session_state.paper_list if p['file_name'] == paper_name), None)
             if paper_info:
+                # Debug: Show what we're trying to get
+                st.caption(f"🔍 Debug: Attempting to get content for {paper_name}")
+                st.caption(f"🔍 Debug: Vector store available: {st.session_state.vectorstore is not None}")
+                
+                # Get paper abstract and metadata from vector store
+                abstract_content, keywords = get_paper_abstract_and_keywords(st.session_state.vectorstore, paper_name)
+                
+                # Debug: Show what we got back
+                st.caption(f"🔍 Debug: Abstract content length: {len(abstract_content) if abstract_content else 0}")
+                st.caption(f"🔍 Debug: Keywords: {keywords}")
+                
+                # Try to get actual paper title from vector store
+                actual_title = None
+                if st.session_state.vectorstore:
+                    try:
+                        # Search for documents from this paper to get title
+                        results = st.session_state.vectorstore.similarity_search(
+                            paper_name, 
+                            k=5,
+                            filter={"file_name": paper_name}
+                        )
+                        for doc in results:
+                            if doc.metadata.get('title'):
+                                actual_title = doc.metadata.get('title')
+                                break
+                    except Exception as e:
+                        st.caption(f"🔍 Debug: Could not get title from vector store: {e}")
+                
+                # Use actual title if available, otherwise use filename
+                display_title = actual_title if actual_title else paper_name.replace('.pdf', '').replace('_', ' ')
+                
                 # Create clickable title with Google Scholar link
-                paper_title = paper_name.replace('.pdf', '').replace('_', ' ')
-                scholar_query = paper_title.replace(' ', '+')
+                scholar_query = display_title.replace(' ', '+')
                 scholar_url = f"https://scholar.google.com/scholar?q={scholar_query}"
                 
-                with st.expander(f"📄 {paper_title}", expanded=True):
+                with st.expander(f"📄 {display_title}", expanded=True):
                     # Add clickable Google Scholar link
                     st.markdown(f"🔗 **[View on Google Scholar]({scholar_url})**")
-                    
-                    # Get paper abstract and metadata from vector store
-                    abstract_content, keywords = get_paper_abstract_and_keywords(st.session_state.vectorstore, paper_name)
                     
                     # Display abstract/content from vector store
                     if abstract_content:
