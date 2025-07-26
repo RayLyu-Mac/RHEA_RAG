@@ -16,7 +16,7 @@ def load_llm(model_name: str):
     try:
         return Ollama(model=model_name)
     except Exception as e:
-        st.error(f"Failed to load LLM model {model_name}: {e}")
+        # Don't show error - just return None for graceful degradation
         return None
 
 
@@ -42,17 +42,20 @@ def get_available_ollama_models() -> List[str]:
             
             return sorted(llm_models) if llm_models else ["qwen3:14b", "gemma3:4b"]
         else:
-            st.warning("Could not fetch Ollama models. Using default models.")
             return ["qwen3:14b", "gemma3:4b"]
     except Exception as e:
-        st.warning(f"Failed to fetch Ollama models: {e}. Using default models.")
         return ["qwen3:14b", "gemma3:4b"]
 
 
 def optimize_question(llm, original_question: str) -> Tuple[str, List[str]]:
     """Use LLM to optimize the question for better retrieval"""
     if not llm:
-        return original_question, []
+        # Return original question and static keywords when LLM is not available
+        static_keywords = [
+            "precipitation strengthening", "dislocation density", "grain boundary", 
+            "microstructure", "mechanical properties", "yield strength", "ductility"
+        ]
+        return original_question, static_keywords
     
     try:
         optimization_prompt = f"""You are a materials science research expert. Optimize the following question for better search in a scientific paper database about Refractory High-Entropy Alloys (RHEA).
@@ -88,8 +91,12 @@ Response:"""
         return optimized_question, keywords
         
     except Exception as e:
-        st.error(f"Failed to optimize question: {e}")
-        return original_question, []
+        # Return original question and static keywords on error
+        static_keywords = [
+            "precipitation strengthening", "dislocation density", "grain boundary", 
+            "microstructure", "mechanical properties", "yield strength", "ductility"
+        ]
+        return original_question, static_keywords
 
 
 def get_suggested_keywords() -> List[str]:
@@ -108,7 +115,28 @@ def get_suggested_keywords() -> List[str]:
 def generate_answer(llm, question: str, search_results: List[Document]) -> str:
     """Generate answer using LLM based on search results"""
     if not llm:
-        return "LLM not available. Please check your model selection."
+        # Return a helpful message when LLM is not available
+        if not search_results:
+            return "No relevant documents found for your question."
+        
+        # Create a simple summary of search results without LLM
+        result_summary = []
+        for i, doc in enumerate(search_results[:3]):  # Limit to first 3 results
+            paper_name = doc.metadata.get('file_name', 'Unknown Paper')
+            section = doc.metadata.get('section', 'Unknown Section')
+            content_preview = doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content
+            
+            result_summary.append(f"**{paper_name}** ({section}):\n{content_preview}\n")
+        
+        return f"""**Search Results Summary (LLM not available):**
+
+Your question: "{question}"
+
+Found {len(search_results)} relevant documents. Here are the top results:
+
+{chr(10).join(result_summary)}
+
+*Note: LLM-powered answer generation is not available. Please check your model configuration or try loading a different model.*"""
     
     if not search_results:
         return "No relevant documents found for your question."
@@ -152,5 +180,4 @@ Answer:"""
         return answer
         
     except Exception as e:
-        st.error(f"Failed to generate answer: {e}")
         return f"Error during answer generation: {str(e)}" 
