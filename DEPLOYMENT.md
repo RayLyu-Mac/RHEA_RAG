@@ -62,15 +62,27 @@ OPENAI_API_KEY=your_openai_key_here
 
 ### Common Issues
 
-1. **ModuleNotFoundError: No module named 'graphviz'**
+1. **SQLite version compatibility error**
+   - **Error**: "Your system has an unsupported version of sqlite3. Chroma requires sqlite3 ≥ 3.35.0"
+   - **Solutions**:
+     ```bash
+     # Update ChromaDB and SQLite
+     pip install --upgrade chromadb pysqlite3-binary
+     
+     # Or run the diagnostic script
+     python test_sqlite.py
+     ```
+   - **Alternative**: The app will attempt to use in-memory Chroma as fallback
+
+2. **ModuleNotFoundError: No module named 'graphviz'**
    - Solution: The app will work without graphviz, but install it for full functionality
    - Run: `pip install graphviz`
 
-2. **Vector store not found**
+3. **Vector store not found**
    - Ensure your vector store data is included in the repository
    - Check the path in `vector_store.py`
 
-3. **LLM not loading**
+4. **LLM not loading**
    - The app works in "Paper Management & Note-Taking" mode without LLM
    - Install Ollama or configure online LLM services
 

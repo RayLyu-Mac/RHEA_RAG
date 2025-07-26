@@ -11,7 +11,7 @@ from typing import List, Dict, Tuple, Optional
 
 
 @st.cache_data
-def load_paper_list(tracker_path: str = "../vectorization_tracker.csv") -> Tuple[List[Dict], Optional[pd.DataFrame]]:
+def load_paper_list(tracker_path: str = "./vectorization_tracker.csv") -> Tuple[List[Dict], Optional[pd.DataFrame]]:
     """Load the list of papers from the tracker CSV"""
     try:
         if os.path.exists(tracker_path):

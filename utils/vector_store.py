@@ -12,13 +12,93 @@ from langchain.schema import Document
 
 @st.cache_resource
 def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nomic-embed-text_latest_parent_child"):
-    """Load the vector store"""
+    """Load the vector store with enhanced error handling for SQLite issues"""
     try:
-        embeddings = OllamaEmbeddings(model="nomic-embed-text:latest")
-        vectorstore = Chroma(persist_directory=persist_directory, embedding_function=embeddings)
-        return vectorstore
+        # First, check SQLite version
+        import sqlite3
+        sqlite_version = sqlite3.sqlite_version
+        st.info(f"📊 SQLite version detected: {sqlite_version}")
+        
+        # Check if the persist directory exists
+        import os
+        if not os.path.exists(persist_directory):
+            st.error(f"❌ Vector store directory not found: {persist_directory}")
+            st.info("💡 Please ensure the vector store has been created and the path is correct.")
+            return None
+        
+        # Try to load embeddings
+        try:
+            embeddings = OllamaEmbeddings(model="nomic-embed-text:latest")
+        except Exception as emb_error:
+            st.error(f"❌ Failed to load embeddings: {emb_error}")
+            st.info("💡 Please ensure Ollama is running and the 'nomic-embed-text:latest' model is available.")
+            return None
+        
+        # Try to load Chroma with specific error handling
+        try:
+            vectorstore = Chroma(persist_directory=persist_directory, embedding_function=embeddings)
+            
+            # Test the vector store by trying to get collection info
+            try:
+                collection = vectorstore._collection
+                if collection:
+                    count = collection.count()
+                    st.success(f"✅ Vector store loaded successfully! Found {count} documents.")
+                else:
+                    st.warning("⚠️ Vector store loaded but collection appears empty.")
+            except Exception as test_error:
+                st.warning(f"⚠️ Vector store loaded but couldn't verify contents: {test_error}")
+            
+            return vectorstore
+            
+        except Exception as chroma_error:
+            error_str = str(chroma_error)
+            
+            # Handle specific SQLite version error
+            if "sqlite3" in error_str.lower() and "3.35.0" in error_str:
+                st.error("❌ SQLite version compatibility issue detected!")
+                st.error(f"Current SQLite version: {sqlite_version}")
+                st.error("Chroma requires SQLite ≥ 3.35.0")
+                
+                # Provide solutions
+                st.markdown("**Solutions:**")
+                st.markdown("1. **Update Python environment** (recommended):")
+                st.markdown("   ```bash")
+                st.markdown("   pip install --upgrade chromadb")
+                st.markdown("   pip install --upgrade pysqlite3-binary")
+                st.markdown("   ```")
+                
+                st.markdown("2. **Use a different vector store backend:**")
+                st.markdown("   - Consider using FAISS or other backends")
+                st.markdown("   - Or use in-memory Chroma")
+                
+                # Try in-memory fallback
+                st.info("🔄 Attempting to use in-memory Chroma as fallback...")
+                try:
+                    vectorstore = Chroma(embedding_function=embeddings)
+                    st.success("✅ Successfully loaded in-memory Chroma vector store!")
+                    st.warning("⚠️ Note: This is an empty in-memory store. You'll need to re-vectorize your papers.")
+                    return vectorstore
+                except Exception as mem_error:
+                    st.error(f"❌ In-memory fallback also failed: {mem_error}")
+                
+                st.markdown("3. **Check for multiple Python installations:**")
+                st.markdown("   - Ensure you're using the correct Python environment")
+                st.markdown("   - Check if conda/pyenv is affecting SQLite detection")
+                
+                return None
+            
+            # Handle other Chroma errors
+            else:
+                st.error(f"❌ Failed to load Chroma vector store: {chroma_error}")
+                st.info("💡 This might be due to:")
+                st.info("- Corrupted vector store files")
+                st.info("- Missing or incompatible embeddings model")
+                st.info("- Permission issues with the persist directory")
+                return None
+                
     except Exception as e:
-        st.error(f"Failed to load vector store: {e}")
+        st.error(f"❌ Unexpected error loading vector store: {e}")
         return None
 
 

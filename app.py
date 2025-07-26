@@ -50,7 +50,7 @@ def load_vectorstore():
     """Load the vector store"""
     try:
         embeddings = OllamaEmbeddings(model="nomic-embed-text:latest")
-        persist_directory = "../VectorSpace/paper_vector_db_nomic-embed-text_latest_parent_child"
+        persist_directory = "../RHEA_RAG/VectorSpace/paper_vector_db_nomic-embed-text_latest_parent_child"
         vectorstore = Chroma(persist_directory=persist_directory, embedding_function=embeddings)
         return vectorstore
     except Exception as e:
@@ -98,7 +98,7 @@ def get_available_ollama_models():
 def load_paper_list():
     """Load the list of papers from the tracker CSV"""
     try:
-        tracker_path = "../vectorization_tracker.csv"
+        tracker_path = "./vectorization_tracker.csv"
         if os.path.exists(tracker_path):
             df = pd.read_csv(tracker_path)
             # Filter only vectorized papers
@@ -1014,7 +1014,7 @@ def main():
                 st.success("✅ Vector store loaded")
                 
                 # Display vector store name
-                persist_directory = "../VectorSpace/paper_vector_db_nomic-embed-text_latest_parent_child"
+                persist_directory = "../RHEA_RAG/VectorSpace/paper_vector_db_nomic-embed-text_latest_parent_child"
                 vector_store_name = os.path.basename(persist_directory)
                 st.info(f"📂 Vector store: {vector_store_name}")
                 
