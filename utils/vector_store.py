@@ -44,7 +44,7 @@ def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nom
         try:
             print("🔍 Debug: Loading SentenceTransformer embeddings...")
             from langchain_community.embeddings import SentenceTransformerEmbeddings
-            embeddings = SentenceTransformerEmbeddings(model_name="nomic-ai/nomic-embed-text-v1",,model_kwargs={"trust_remote_code": True})
+            embeddings = SentenceTransformerEmbeddings(model_name="nomic-ai/nomic-embed-text-v1",model_kwargs={"trust_remote_code": True})
             print(f"🔍 Debug: Embeddings object created: {type(embeddings)}")
             add_system_message('success', "✅ Loaded SentenceTransformer embeddings")
         except Exception as st_error:
