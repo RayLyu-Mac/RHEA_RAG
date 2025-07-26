@@ -146,12 +146,38 @@ def search_papers(vectorstore, question: str, selected_papers: Optional[List[str
                 # Create simple Document objects from CSV data
                 search_results = []
                 for _, row in vectorized_papers.head(k).iterrows():
+                    # Create more detailed content from CSV data
+                    paper_title = row['file_name'].replace('.pdf', '').replace('_', ' ')
+                    folder = row.get('folder', 'Unknown')
+                    figure_count = row.get('figure_count', 0)
+                    vectorized_date = row.get('vectorized_date', 'Unknown')
+                    vectorized_model = row.get('vectorized_model', 'Unknown')
+                    chunk_count = row.get('chunk_count', 0)
+                    
+                    content = f"""**Paper Title:** {paper_title}
+
+**Folder:** {folder}
+**Figures:** {figure_count}
+**Vectorized Date:** {vectorized_date}
+**Vectorization Model:** {vectorized_model}
+**Content Chunks:** {chunk_count}
+
+This paper has been processed and vectorized in the database. The full content and abstract are available through the vector store when Ollama is running.
+
+**Note:** To access the complete paper content, ensure Ollama is running and the vector store is accessible."""
+                    
                     doc = Document(
-                        page_content=f"Paper: {row['file_name']}\n\nThis paper has been vectorized and is available in the database. The full content can be accessed through the vector store when Ollama is available.",
+                        page_content=content,
                         metadata={
                             'file_name': row['file_name'],
                             'document_type': 'parent',
-                            'content_type': 'research_paper'
+                            'content_type': 'research_paper',
+                            'title': paper_title,
+                            'folder': folder,
+                            'figure_count': figure_count,
+                            'vectorized_date': vectorized_date,
+                            'vectorized_model': vectorized_model,
+                            'chunk_count': chunk_count
                         }
                     )
                     search_results.append(doc)
@@ -272,12 +298,38 @@ def search_papers(vectorstore, question: str, selected_papers: Optional[List[str
                 # Create simple Document objects from CSV data
                 search_results = []
                 for _, row in vectorized_papers.head(k).iterrows():
+                    # Create more detailed content from CSV data
+                    paper_title = row['file_name'].replace('.pdf', '').replace('_', ' ')
+                    folder = row.get('folder', 'Unknown')
+                    figure_count = row.get('figure_count', 0)
+                    vectorized_date = row.get('vectorized_date', 'Unknown')
+                    vectorized_model = row.get('vectorized_model', 'Unknown')
+                    chunk_count = row.get('chunk_count', 0)
+                    
+                    content = f"""**Paper Title:** {paper_title}
+
+**Folder:** {folder}
+**Figures:** {figure_count}
+**Vectorized Date:** {vectorized_date}
+**Vectorization Model:** {vectorized_model}
+**Content Chunks:** {chunk_count}
+
+This paper has been processed and vectorized in the database. The full content and abstract are available through the vector store when Ollama is running.
+
+**Note:** To access the complete paper content, ensure Ollama is running and the vector store is accessible."""
+                    
                     doc = Document(
-                        page_content=f"Paper: {row['file_name']}\n\nThis paper has been vectorized and is available in the database. The full content can be accessed through the vector store when Ollama is available.",
+                        page_content=content,
                         metadata={
                             'file_name': row['file_name'],
                             'document_type': 'parent',
-                            'content_type': 'research_paper'
+                            'content_type': 'research_paper',
+                            'title': paper_title,
+                            'folder': folder,
+                            'figure_count': figure_count,
+                            'vectorized_date': vectorized_date,
+                            'vectorized_model': vectorized_model,
+                            'chunk_count': chunk_count
                         }
                     )
                     search_results.append(doc)
@@ -342,9 +394,27 @@ def get_paper_abstract_and_keywords(vectorstore, paper_name: str) -> Tuple[Optio
                 paper_row = df[df['file_name'] == paper_name]
                 
                 if not paper_row.empty:
-                    # Create a simple abstract from the file name and metadata
-                    abstract_content = f"Paper: {paper_name.replace('.pdf', '')}\n\nThis paper has been vectorized and is available in the database. The full content can be accessed through the vector store when Ollama is available."
-                    keywords = "RHEA, materials science, research paper"
+                    # Create a more detailed abstract from the file name and metadata
+                    paper_title = paper_name.replace('.pdf', '').replace('_', ' ')
+                    folder = paper_row.iloc[0].get('folder', 'Unknown')
+                    figure_count = paper_row.iloc[0].get('figure_count', 0)
+                    vectorized_date = paper_row.iloc[0].get('vectorized_date', 'Unknown')
+                    vectorized_model = paper_row.iloc[0].get('vectorized_model', 'Unknown')
+                    chunk_count = paper_row.iloc[0].get('chunk_count', 0)
+                    
+                    abstract_content = f"""**Paper Title:** {paper_title}
+
+**Folder:** {folder}
+**Figures:** {figure_count}
+**Vectorized Date:** {vectorized_date}
+**Vectorization Model:** {vectorized_model}
+**Content Chunks:** {chunk_count}
+
+This paper has been processed and vectorized in the database. The full content and abstract are available through the vector store when Ollama is running. 
+
+**Note:** To access the complete paper content, ensure Ollama is running and the vector store is accessible."""
+                    
+                    keywords = f"RHEA, materials science, {folder}, research paper, vectorized"
                     
                     add_system_message('info', f"✅ Used CSV fallback for {paper_name}")
                     return abstract_content, keywords

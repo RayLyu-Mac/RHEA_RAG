@@ -661,21 +661,41 @@ def display_preview_section(selected_papers: List[str]):
         for paper_name in selected_papers:
             paper_info = next((p for p in st.session_state.paper_list if p['file_name'] == paper_name), None)
             if paper_info:
-                with st.expander(f"📄 {paper_name.replace('.pdf', '')}", expanded=True):
+                # Create clickable title with Google Scholar link
+                paper_title = paper_name.replace('.pdf', '').replace('_', ' ')
+                scholar_query = paper_title.replace(' ', '+')
+                scholar_url = f"https://scholar.google.com/scholar?q={scholar_query}"
+                
+                with st.expander(f"📄 {paper_title}", expanded=True):
+                    # Add clickable Google Scholar link
+                    st.markdown(f"🔗 **[View on Google Scholar]({scholar_url})**")
                     
-                    # Get paper abstract and metadata
+                    # Get paper abstract and metadata from vector store
                     abstract_content, keywords = get_paper_abstract_and_keywords(st.session_state.vectorstore, paper_name)
                     
-                    # Display abstract
+                    # Display abstract/content from vector store
                     if abstract_content:
-                        st.markdown("**📝 Abstract:**")
+                        st.markdown("**📝 Abstract/Content:**")
                         st.markdown(
                             create_content_card(
-                                abstract_content[:500] + ("..." if len(abstract_content) > 500 else ""),
-                                "font-size: 0.9em; max-height: 200px; overflow-y: auto;"
+                                abstract_content[:800] + ("..." if len(abstract_content) > 800 else ""),
+                                "font-size: 0.9em; max-height: 300px; overflow-y: auto;"
                             ),
                             unsafe_allow_html=True
                         )
+                        
+                        # Show full content button if content is truncated
+                        if len(abstract_content) > 800:
+                            if st.button(f"📖 Show Full Content", key=f"full_content_{paper_name}"):
+                                st.markdown(
+                                    create_content_card(
+                                        abstract_content,
+                                        "font-size: 0.9em; max-height: 500px; overflow-y: auto;"
+                                    ),
+                                    unsafe_allow_html=True
+                                )
+                    else:
+                        st.warning("⚠️ No content available from vector store. This may be due to Ollama not being available.")
                     
                     # Display keywords
                     if keywords:
@@ -695,11 +715,17 @@ def display_preview_section(selected_papers: List[str]):
                         st.info("No figures available for this paper")
                     
                     # Paper stats
-                    col1, col2 = st.columns(2)
+                    col1, col2, col3 = st.columns(3)
                     with col1:
                         st.metric("Figures", paper_info['figure_count'])
                     with col2:
                         st.metric("Folder", paper_info['folder'])
+                    with col3:
+                        # Show vectorization status
+                        if paper_info.get('vectorized_model'):
+                            st.metric("Vectorized", f"✅ {paper_info['vectorized_model']}")
+                        else:
+                            st.metric("Vectorized", "❌ No")
     
     else:
         st.info("📋 Select papers or ask questions to see previews here")
@@ -710,6 +736,7 @@ def display_preview_section(selected_papers: List[str]):
         1. Select papers from the sidebar, or
         2. Ask a question to see relevant papers
         3. View abstracts, keywords, and figures here
+        4. Click the Google Scholar link to view papers online
         """)
 
 
