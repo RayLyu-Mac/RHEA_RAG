@@ -23,6 +23,10 @@ def add_system_message(message_type: str, message: str):
 def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nomic-embed-text_latest_parent_child"):
     """Load the vector store with enhanced error handling for SQLite issues"""
     try:
+        # Clear any cached vector store to ensure fresh loading
+        if hasattr(st, 'cache_resource'):
+            st.cache_resource.clear()
+        
         # First, check SQLite version
         import sqlite3
         sqlite_version = sqlite3.sqlite_version
@@ -40,7 +44,7 @@ def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nom
         try:
             print("🔍 Debug: Loading SentenceTransformer embeddings...")
             from langchain_community.embeddings import SentenceTransformerEmbeddings
-            embeddings = SentenceTransformerEmbeddings(model_name="nomic-ai/nomic-embed-text-v1")
+            embeddings = SentenceTransformerEmbeddings(model_name="nomic-ai/nomic-embed-text-v1",,model_kwargs={"trust_remote_code": True})
             print(f"🔍 Debug: Embeddings object created: {type(embeddings)}")
             add_system_message('success', "✅ Loaded SentenceTransformer embeddings")
         except Exception as st_error:

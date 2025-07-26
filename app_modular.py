@@ -963,7 +963,8 @@ def main():
     # Check if vector store loaded successfully
     if not st.session_state.vectorstore:
         st.error("❌ Failed to load vector store. Please check the configuration.")
-        return
+        st.info("💡 Check the sidebar under 'System Status' for detailed error messages and troubleshooting steps.")
+        # Don't return - let the app continue so user can see error details in sidebar
     
     # Display sidebar and get settings
     selected_papers, llm_model, search_type, num_results = display_sidebar()
