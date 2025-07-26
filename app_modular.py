@@ -307,6 +307,28 @@ def display_sidebar() -> tuple:
                         st.markdown("**First 3 papers data:**")
                         for i, paper in enumerate(st.session_state.paper_list[:3]):
                             st.json(paper)
+                        
+                        # Show raw CSV data for debugging
+                        if st.session_state.tracker_df is not None:
+                            st.markdown("**Raw CSV data (first 3 rows):**")
+                            st.dataframe(st.session_state.tracker_df[['file_name', 'file_path']].head(3))
+                            
+                            # Show unique folder names found
+                            st.markdown("**Unique folder names in CSV:**")
+                            folder_names = []
+                            for _, row in st.session_state.tracker_df.iterrows():
+                                folder = os.path.basename(os.path.dirname(row['file_path']))
+                                folder_names.append(folder)
+                            
+                            unique_folders = list(set(folder_names))
+                            st.write(f"Found folders: {unique_folders}")
+                            
+                            # Show path structure
+                            st.markdown("**Path structure analysis:**")
+                            sample_path = st.session_state.tracker_df.iloc[0]['file_path']
+                            path_parts = sample_path.replace('\\', '/').split('/')
+                            st.write(f"Sample path: {sample_path}")
+                            st.write(f"Path parts: {path_parts}")
                 else:
                     st.error("❌ No papers loaded")
                     

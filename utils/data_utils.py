@@ -24,8 +24,33 @@ def load_paper_list(tracker_path: str = "./vectorization_tracker.csv") -> Tuple[
             
             paper_list = []
             for _, row in vectorized_papers.iterrows():
+                # Debug: Show the raw file path first
+                if len(paper_list) < 3:
+                    print(f"🔍 Raw file_path for {row['file_name']}: '{row['file_path']}'")
+                
                 # Get folder name directly from file path (more reliable)
                 folder_name = os.path.basename(os.path.dirname(row['file_path']))
+                
+                # If folder_name is '..' or unexpected, try to extract from the full path
+                if folder_name in ['..', '.', ''] or len(folder_name) > 50:
+                    # Try to find the actual folder name in the path
+                    path_parts = row['file_path'].replace('\\', '/').split('/')
+                    print(f"🔍 Path parts for {row['file_name']}: {path_parts}")
+                    
+                    # Look for known folder names in the path
+                    for part in path_parts:
+                        if part in ['dislocation', 'grainBoundary', 'Precipitation', 'SSS']:
+                            folder_name = part
+                            print(f"✅ Found folder '{part}' in path for {row['file_name']}")
+                            break
+                    else:
+                        # If no known folder found, use the last directory before the file
+                        if len(path_parts) >= 2:
+                            folder_name = path_parts[-2]  # Second to last part
+                            print(f"⚠️ Using fallback folder '{folder_name}' for {row['file_name']}")
+                        else:
+                            folder_name = "unknown"
+                            print(f"❌ Could not determine folder for {row['file_name']}")
                 
                 # Compute full folder path relative to Papers root (for compatibility)
                 abs_paper_path = os.path.abspath(row['file_path'])
