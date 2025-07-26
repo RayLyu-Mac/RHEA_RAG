@@ -92,6 +92,11 @@ def get_folder_config() -> Tuple[List[str], Dict[str, str]]:
         "Precipitation": "💧",
         "SSS": "🔬"
     }
+    
+    # Debug: Print folder configuration
+    print(f"📁 Folder config - Order: {folder_order}")
+    print(f"📁 Folder config - Icons: {folder_icons}")
+    
     return folder_order, folder_icons
 
 

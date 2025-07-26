@@ -174,8 +174,25 @@ def display_sidebar() -> tuple:
         with tab1:
             # Paper Selection Section (now collapsible)
             with st.expander("📚 Paper Selection", expanded=True):
-                folder_order, folder_icons = get_folder_config()
-                selected_papers = display_paper_selection(st.session_state.paper_list, folder_order, folder_icons)
+                # Debug information for paper selection
+                if st.session_state.paper_list:
+                    st.caption(f"📊 Debug: {len(st.session_state.paper_list)} papers loaded in session state")
+                    
+                    # Show first few papers for debugging
+                    if len(st.session_state.paper_list) > 0:
+                        st.caption(f"📄 Sample papers: {[p['file_name'] for p in st.session_state.paper_list[:3]]}")
+                    
+                    folder_order, folder_icons = get_folder_config()
+                    selected_papers = display_paper_selection(st.session_state.paper_list, folder_order, folder_icons)
+                    
+                    # Show selection debug info
+                    if selected_papers:
+                        st.caption(f"✅ Selected: {len(selected_papers)} papers")
+                    else:
+                        st.caption("ℹ️ No papers selected yet")
+                else:
+                    st.error("❌ No papers in session state")
+                    st.caption("This means papers were loaded but not stored properly in session state")
             
             st.divider()
             
@@ -284,6 +301,12 @@ def display_sidebar() -> tuple:
                     st.markdown("**Folder Distribution:**")
                     for folder, count in sorted(folders.items()):
                         st.caption(f"• {folder}: {count} papers")
+                    
+                    # Debug: Show raw paper data
+                    with st.expander("🔍 Raw Paper Data (Debug)", expanded=False):
+                        st.markdown("**First 3 papers data:**")
+                        for i, paper in enumerate(st.session_state.paper_list[:3]):
+                            st.json(paper)
                 else:
                     st.error("❌ No papers loaded")
                     

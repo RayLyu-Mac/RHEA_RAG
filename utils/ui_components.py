@@ -196,6 +196,14 @@ def display_folder_tree(papers, parent_path=""):
 def display_paper_selection(paper_list, folder_order, folder_icons):
     from collections import defaultdict
     selected_papers = []
+    
+    # Debug information
+    if not paper_list:
+        st.error("❌ No papers provided to display_paper_selection")
+        return selected_papers
+    
+    st.caption(f"🔍 Debug: Processing {len(paper_list)} papers for display")
+    
     papers_by_top = defaultdict(list)
     for paper in paper_list:
         top_level = paper.get('top_level_folder')
@@ -210,11 +218,16 @@ def display_paper_selection(paper_list, folder_order, folder_icons):
                 top_level = rel_folder_path.split('/')[0] if '/' in rel_folder_path else rel_folder_path
             paper['top_level_folder'] = top_level
         papers_by_top[top_level].append(paper)
+    
+    st.caption(f"📁 Debug: Papers grouped into {len(papers_by_top)} top-level folders: {list(papers_by_top.keys())}")
+    
     for folder in folder_order:
         if folder in papers_by_top:
             icon = folder_icons.get(folder, '📁')
             with st.expander(f"{icon} {folder}", expanded=False):
                 folder_papers = papers_by_top[folder]
+                st.caption(f"📄 Debug: {len(folder_papers)} papers in {folder}")
+                
                 # Select All / Deselect All buttons
                 col_sel, col_desel = st.columns([1, 1])
                 if col_sel.button(f"Select All {folder}", key=f"select_all_{folder}"):
@@ -258,6 +271,10 @@ def display_paper_selection(paper_list, folder_order, folder_icons):
                         if st.button("👁️", key=f"view_{paper['file_name']}", help="View paper"):
                             st.session_state.view_paper_pdf = paper['file_path']
                             st.rerun()
+        else:
+            st.caption(f"⚠️ Debug: No papers found for folder '{folder}'")
+    
+    st.caption(f"✅ Debug: {len(selected_papers)} papers selected")
     return selected_papers
 
 
