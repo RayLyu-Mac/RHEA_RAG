@@ -783,33 +783,29 @@ def main():
     if st.session_state.llm is not None:
         # LLM is available - show all tabs including Paper Network
         tab1, tab2, tab3, tab4 = st.tabs(["💬 Ask Question", "🖼️ Paper Preview", "🕸️ Paper Network", "🌐 Scholar Abstract Scraper"])
-    else:
-        # LLM is not available - hide Paper Network tab
-        tab2, tab4 = st.tabs(["🖼️ Paper Preview", "🌐 Scholar Abstract Scraper"])
-    
-    with tab1:
-        col_ask, col_suggest = st.columns([1, 1.5])
-        with col_ask:
-            st.markdown(create_glass_card("💬 Ask Questions"), unsafe_allow_html=True)
-            gap_toggle = st.checkbox("Identify Research Gaps", value=False, key="gap_toggle", disabled=st.session_state.llm is None, help="LLM required for research gap analysis")
-            display_question_section(llm_model, selected_papers, search_type, num_results, gap_toggle=gap_toggle)
-        with col_suggest:
-            # At the very top of the right column: toggle, year, and results
-            import datetime
-            current_year = datetime.datetime.now().year
-            years = ["All"] + [str(y) for y in range(current_year, 1999, -1)]
-            col_year, col_toggle = st.columns([1, 1])
-            with col_year:
-                scholar_year = st.selectbox("Year limit", years, index=0, key="year_limit", label_visibility="visible")
-            with col_toggle:
-                scholar_toggle = st.checkbox("Suggest follow-up reading", value=False)
-            scholar_search_and_display()
+        
+        with tab1:
+            col_ask, col_suggest = st.columns([1, 1.5])
+            with col_ask:
+                st.markdown(create_glass_card("💬 Ask Questions"), unsafe_allow_html=True)
+                gap_toggle = st.checkbox("Identify Research Gaps", value=False, key="gap_toggle", disabled=st.session_state.llm is None, help="LLM required for research gap analysis")
+                display_question_section(llm_model, selected_papers, search_type, num_results, gap_toggle=gap_toggle)
+            with col_suggest:
+                # At the very top of the right column: toggle, year, and results
+                import datetime
+                current_year = datetime.datetime.now().year
+                years = ["All"] + [str(y) for y in range(current_year, 1999, -1)]
+                col_year, col_toggle = st.columns([1, 1])
+                with col_year:
+                    scholar_year = st.selectbox("Year limit", years, index=0, key="year_limit", label_visibility="visible")
+                with col_toggle:
+                    scholar_toggle = st.checkbox("Suggest follow-up reading", value=False)
+                scholar_search_and_display()
 
-    with tab2:
-        display_preview_section(selected_papers)
-    
-    # Only show tab3 (Paper Network) if LLM is available
-    if st.session_state.llm is not None:
+        with tab2:
+            display_preview_section(selected_papers)
+        
+        # Only show tab3 (Paper Network) if LLM is available
         with tab3:
             st.markdown('### 🤖 LLM-Powered Paper Grouping Table')
             group_question = st.text_input('Enter a grouping question for the table (e.g., "What type of precipitate is present in the paper?")', value='')
@@ -931,9 +927,18 @@ def main():
                     else:
                         st.info("📋 DOT code generated successfully! Install graphviz to visualize the flowchart.")
                         st.markdown("**Installation command:** `pip install graphviz`")
-    
-    with tab4:
-        display_scholar_section()
+        
+        with tab4:
+            display_scholar_section()
+    else:
+        # LLM is not available - show limited tabs
+        tab2, tab4 = st.tabs(["🖼️ Paper Preview", "🌐 Scholar Abstract Scraper"])
+        
+        with tab2:
+            display_preview_section(selected_papers)
+        
+        with tab4:
+            display_scholar_section()
 
 
 if __name__ == "__main__":
