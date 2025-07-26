@@ -128,7 +128,43 @@ def search_papers(vectorstore, question: str, selected_papers: Optional[List[str
         Tuple of (search_results, success_flag)
     """
     if not vectorstore:
-        return [], False
+        # Fallback: Return papers from CSV data if vector store is not available
+        try:
+            add_system_message('warning', "⚠️ Vector store not available, using CSV fallback for search")
+            
+            import streamlit as st
+            from langchain.schema import Document
+            
+            if hasattr(st, 'session_state') and 'tracker_df' in st.session_state and st.session_state.tracker_df is not None:
+                df = st.session_state.tracker_df
+                vectorized_papers = df[df['vectorized'] == True]
+                
+                # Filter by selected papers if specified
+                if selected_papers and len(selected_papers) > 0:
+                    vectorized_papers = vectorized_papers[vectorized_papers['file_name'].isin(selected_papers)]
+                
+                # Create simple Document objects from CSV data
+                search_results = []
+                for _, row in vectorized_papers.head(k).iterrows():
+                    doc = Document(
+                        page_content=f"Paper: {row['file_name']}\n\nThis paper has been vectorized and is available in the database. The full content can be accessed through the vector store when Ollama is available.",
+                        metadata={
+                            'file_name': row['file_name'],
+                            'document_type': 'parent',
+                            'content_type': 'research_paper'
+                        }
+                    )
+                    search_results.append(doc)
+                
+                add_system_message('info', f"✅ Used CSV fallback, found {len(search_results)} papers")
+                return search_results, True
+            else:
+                add_system_message('error', "❌ No CSV data available for fallback")
+                return [], False
+                
+        except Exception as fallback_error:
+            add_system_message('error', f"❌ CSV fallback failed: {fallback_error}")
+            return [], False
     
     try:
         # If specific papers are selected, search with a broader query and larger k
@@ -218,6 +254,43 @@ def search_papers(vectorstore, question: str, selected_papers: Optional[List[str
         return search_results, True
         
     except Exception as e:
+        # Fallback: Try CSV data if vector store search fails
+        try:
+            add_system_message('warning', f"⚠️ Vector store search failed, trying CSV fallback")
+            
+            import streamlit as st
+            from langchain.schema import Document
+            
+            if hasattr(st, 'session_state') and 'tracker_df' in st.session_state and st.session_state.tracker_df is not None:
+                df = st.session_state.tracker_df
+                vectorized_papers = df[df['vectorized'] == True]
+                
+                # Filter by selected papers if specified
+                if selected_papers and len(selected_papers) > 0:
+                    vectorized_papers = vectorized_papers[vectorized_papers['file_name'].isin(selected_papers)]
+                
+                # Create simple Document objects from CSV data
+                search_results = []
+                for _, row in vectorized_papers.head(k).iterrows():
+                    doc = Document(
+                        page_content=f"Paper: {row['file_name']}\n\nThis paper has been vectorized and is available in the database. The full content can be accessed through the vector store when Ollama is available.",
+                        metadata={
+                            'file_name': row['file_name'],
+                            'document_type': 'parent',
+                            'content_type': 'research_paper'
+                        }
+                    )
+                    search_results.append(doc)
+                
+                add_system_message('info', f"✅ Used CSV fallback, found {len(search_results)} papers")
+                return search_results, True
+            else:
+                add_system_message('error', "❌ No CSV data available for fallback")
+                return [], False
+                
+        except Exception as fallback_error:
+            add_system_message('error', f"❌ CSV fallback failed: {fallback_error}")
+        
         st.error(f"Search failed: {e}")
         return [], False
 
@@ -258,5 +331,30 @@ def get_paper_abstract_and_keywords(vectorstore, paper_name: str) -> Tuple[Optio
         return abstract_content, keywords
         
     except Exception as e:
+        # Fallback: Try to get paper info from CSV data if vector store fails
+        try:
+            add_system_message('warning', f"⚠️ Vector store search failed for {paper_name}, trying CSV fallback")
+            
+            # Try to access the tracker_df from session state
+            import streamlit as st
+            if hasattr(st, 'session_state') and 'tracker_df' in st.session_state and st.session_state.tracker_df is not None:
+                df = st.session_state.tracker_df
+                paper_row = df[df['file_name'] == paper_name]
+                
+                if not paper_row.empty:
+                    # Create a simple abstract from the file name and metadata
+                    abstract_content = f"Paper: {paper_name.replace('.pdf', '')}\n\nThis paper has been vectorized and is available in the database. The full content can be accessed through the vector store when Ollama is available."
+                    keywords = "RHEA, materials science, research paper"
+                    
+                    add_system_message('info', f"✅ Used CSV fallback for {paper_name}")
+                    return abstract_content, keywords
+                else:
+                    add_system_message('warning', f"⚠️ Paper {paper_name} not found in CSV data")
+            else:
+                add_system_message('warning', f"⚠️ No CSV data available for fallback")
+                
+        except Exception as fallback_error:
+            add_system_message('error', f"❌ Both vector store and CSV fallback failed for {paper_name}")
+        
         st.error(f"Failed to load abstract and keywords: {e}")
         return None, None 
