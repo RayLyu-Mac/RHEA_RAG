@@ -20,7 +20,6 @@ def add_system_message(message_type: str, message: str):
         'message': message
     })
 
-@st.cache_resource
 def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nomic-embed-text_latest_parent_child"):
     """Load the vector store with enhanced error handling for SQLite issues"""
     try:
@@ -42,6 +41,7 @@ def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nom
             print("🔍 Debug: Loading SentenceTransformer embeddings...")
             from langchain_community.embeddings import SentenceTransformerEmbeddings
             embeddings = SentenceTransformerEmbeddings(model_name="nomic-ai/nomic-embed-text-v1")
+            print(f"🔍 Debug: Embeddings object created: {type(embeddings)}")
             add_system_message('success', "✅ Loaded SentenceTransformer embeddings")
         except Exception as st_error:
             print(f"❌ Debug: SentenceTransformer embeddings failed: {st_error}")
@@ -52,7 +52,13 @@ def load_vectorstore(persist_directory: str = "./VectorSpace/paper_vector_db_nom
         # Try to load Chroma with SentenceTransformer embeddings
         try:
             print("🔍 Debug: Loading Chroma with SentenceTransformer embeddings...")
+            print(f"🔍 Debug: Persist directory: {persist_directory}")
+            print(f"🔍 Debug: Embeddings function: {embeddings}")
+            
             vectorstore = Chroma(persist_directory=persist_directory, embedding_function=embeddings)
+            
+            # Verify the embedding function is attached
+            print(f"🔍 Debug: Vector store embedding function: {vectorstore.embedding_function}")
             
             # Test the vector store by trying to get collection info
             try:
@@ -363,6 +369,8 @@ def get_paper_abstract_and_keywords(vectorstore, paper_name: str) -> Tuple[Optio
             return None, None
         
         print(f"🔍 Debug: Attempting to search vector store for {paper_name}")
+        print(f"🔍 Debug: Vector store type: {type(vectorstore)}")
+        print(f"🔍 Debug: Vector store embedding function: {getattr(vectorstore, 'embedding_function', 'Not found')}")
         
         # Try to search for child document (abstract) of this paper
         try:
