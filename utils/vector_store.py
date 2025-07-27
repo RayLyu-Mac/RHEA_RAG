@@ -5,7 +5,7 @@ Handles loading, searching, and managing the Chroma vector database.
 
 import streamlit as st
 from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import OllamaEmbeddings
+# from langchain_community.embeddings import OllamaEmbeddings  # Not used anymore
 from typing import List, Optional, Tuple, Any
 from langchain.schema import Document
 
