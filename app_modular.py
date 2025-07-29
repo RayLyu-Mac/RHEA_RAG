@@ -72,7 +72,9 @@ def initialize_session_state():
         'current_model': None,
         'selected_notes_for_qa': [],
         'view_paper_pdf': None,
-        'suggested_followup': [] # Added for suggested follow-up reading
+        'suggested_followup': [], # Added for suggested follow-up reading
+        'follow_up_answer': None,  # Added for follow-up question answers
+        'follow_up_question': None  # Added for follow-up questions
     }
     
     for key, default_value in defaults.items():
@@ -445,87 +447,86 @@ def display_question_section(llm_model: str, selected_papers: List[str], search_
             create_content_card(selected_keywords_text, "background: rgba(0, 0, 0, 0.1); margin: 0.25rem 0 0.5rem 0; padding: 0.5rem 0.75rem;"),
             unsafe_allow_html=True
         )
-    # Ask button - only if not showing optimized question
-    if not st.session_state.optimized_question:
-        st.markdown("---")
-        if st.button("🔍 Ask Question", type="primary", use_container_width=True):
-            if question.strip():
-                if gap_toggle:
-                    if st.session_state.llm is None:
-                        st.error("LLM is required for research gap analysis. Please load an LLM model first.")
-                    else:
-                        # GAP IDENTIFIER LOGIC
-                        abstracts = []
-                        for paper in st.session_state.paper_list:
-                            if paper['file_name'] in selected_papers:
-                                abstract = paper.get('abstract', None)
-                                if not abstract:
-                                    abstract, _ = get_paper_abstract_and_keywords(st.session_state.vectorstore, paper['file_name'])
-                                if abstract:
-                                    abstracts.append(abstract)
-                        if abstracts and st.session_state.llm:
-                            gap_prompt = (
-                                '''You are an expert research assistant specialized in materials science, tasked with analyzing a set of retrieved research papers to identify research gaps. The papers focus on [insert specific topic, e.g., "refractory high-entropy alloys (RHEAs)"] and have been retrieved from a vector database based on their relevance to the topic. Your goal is to synthesize key findings, methodologies, and limitations from these papers and identify underexplored areas, contradictions, or open questions that could guide future research. Follow these steps:
-
-                                1. **Summarize Key Findings**: Provide a concise summary of the main results, trends, or conclusions from the retrieved papers, focusing on [specific aspect, e.g., "mechanical properties, microstructure, or dislocation mechanisms in RHEAs"].
-                                2. **Identify Methodologies**: Highlight the primary experimental, computational, or theoretical approaches used in these papers, noting any recurring techniques or tools.
-                                3. **Analyze Limitations**: Point out explicitly stated limitations or challenges in the papers, such as incomplete datasets, specific alloy compositions not studied, or unexplored conditions (e.g., temperature, pressure).
-                                4. **Detect Contradictions**: Identify any conflicting findings or interpretations across the papers, such as differing conclusions about [specific aspect, e.g., "the role of lattice distortion in RHEA strength"].
-                                5. **Suggest Research Gaps**: Based on the summaries, limitations, and contradictions, propose specific research gaps or unanswered questions. Focus on areas that are underexplored, novel, or have potential for significant impact in [field, e.g., "RHEA design for aerospace applications"]. Provide at least 3 concrete suggestions, each with a brief justification.
-                                6. **Prioritize Feasibility**: For each suggested gap, briefly assess its feasibility based on current methodologies or technologies mentioned in the papers, and suggest a potential approach to address it (e.g., experimental, simulation-based, or theoretical).
-
-                                **Input Context**: You have access to [number, e.g., "10"] retrieved research papers or document chunks stored in a vector database, with summaries and metadata including titles, abstracts, and key sections (e.g., results, conclusions). If figures or tables are available, consider their data (e.g., mechanical properties, phase diagrams) in your analysis.
-
-                                **Output Format**:
-                                - **Summary of Key Findings**: [Brief summary, 3-4 sentences]
-                                - **Methodologies Used**: [List key methods, 2-3 sentences]
-                                - **Limitations Identified**: [List limitations, 2-3 sentences]
-                                - **Contradictions Noted**: [Describe contradictions or lack thereof, 2-3 sentences]
-                                - **Research Gaps and Suggestions**:
-                                - Gap 1: [Description and justification]
-                                    - Feasibility: [Brief assessment and suggested approach]
-                                - Gap 2: [Description and justification]
-                                    - Feasibility: [Brief assessment and suggested approach]
-                                - Gap 3: [Description and justification]
-                                    - Feasibility: [Brief assessment and suggested approach]
-
-                                **Constraints**:
-                                - Be concise, precise, and avoid speculation beyond the provided data.
-                                - Focus on gaps relevant to [specific topic, e.g., "RHEAs"] and avoid overly broad suggestions.
-                                - If insufficient data is available to identify gaps, state this clearly and suggest ways to refine the retrieval (e.g., adjust query terms, include more recent papers).
-                                - Use technical language appropriate for materials science but ensure clarity for a researcher audience.
-
-                                **Example Context (if needed)**: The papers discuss topics like [e.g., "dislocation dynamics, phase stability, or high-temperature performance of RHEAs"], with some including experimental data (e.g., tensile strength tests) and others using simulations (e.g., molecular dynamics).
-
-                                Please analyze the provided papers and generate a detailed research gap analysis following the structure above.'''
-                                + "\n\n".join(abstracts)
-                            )
-                            with st.spinner("LLM is analyzing research gaps..."):
-                                try:
-                                    gap_response = st.session_state.llm.invoke(gap_prompt)
-                                    st.session_state['qa_answer'] = gap_response
-                                except Exception as e:
-                                    st.session_state['qa_answer'] = f"Error: {e}"
-                        else:
-                            st.session_state['qa_answer'] = "No abstracts found or LLM not loaded."
+    # Ask button - always show it, regardless of optimization status
+    st.markdown("---")
+    if st.button("🔍 Ask Question", type="primary", use_container_width=True):
+        # Debug information
+        st.caption(f"🔍 Debug: Button clicked! Question: '{question}'")
+        st.caption(f"🔍 Debug: gap_toggle: {gap_toggle}")
+        st.caption(f"🔍 Debug: optimized_question exists: {'optimized_question' in st.session_state}")
+        if 'optimized_question' in st.session_state:
+            st.caption(f"🔍 Debug: optimized_question value: {st.session_state.optimized_question}")
+        
+        if question.strip():
+            if gap_toggle:
+                if st.session_state.llm is None:
+                    st.error("LLM is required for research gap analysis. Please load an LLM model first.")
                 else:
-                    handle_question_submission(question, llm_model, selected_papers, search_type, num_results)
+                    # GAP IDENTIFIER LOGIC
+                    abstracts = []
+                    for paper in st.session_state.paper_list:
+                        if paper['file_name'] in selected_papers:
+                            abstract = paper.get('abstract', None)
+                            if not abstract:
+                                abstract, _ = get_paper_abstract_and_keywords(st.session_state.vectorstore, paper['file_name'])
+                            if abstract:
+                                abstracts.append(abstract)
+                    if abstracts and st.session_state.llm:
+                        gap_prompt = (
+                            '''You are an expert research assistant specialized in materials science, tasked with analyzing a set of retrieved research papers to identify research gaps. The papers focus on [insert specific topic, e.g., "refractory high-entropy alloys (RHEAs)"] and have been retrieved from a vector database based on their relevance to the topic. Your goal is to synthesize key findings, methodologies, and limitations from these papers and identify underexplored areas, contradictions, or open questions that could guide future research. Follow these steps:
+
+                            1. **Summarize Key Findings**: Provide a concise summary of the main results, trends, or conclusions from the retrieved papers, focusing on [specific aspect, e.g., "mechanical properties, microstructure, or dislocation mechanisms in RHEAs"].
+                            2. **Identify Methodologies**: Highlight the primary experimental, computational, or theoretical approaches used in these papers, noting any recurring techniques or tools.
+                            3. **Analyze Limitations**: Point out explicitly stated limitations or challenges in the papers, such as incomplete datasets, specific alloy compositions not studied, or unexplored conditions (e.g., temperature, pressure).
+                            4. **Detect Contradictions**: Identify any conflicting findings or interpretations across the papers, such as differing conclusions about [specific aspect, e.g., "the role of lattice distortion in RHEA strength"].
+                            5. **Suggest Research Gaps**: Based on the summaries, limitations, and contradictions, propose specific research gaps or unanswered questions. Focus on areas that are underexplored, novel, or have potential for significant impact in [field, e.g., "RHEA design for aerospace applications"]. Provide at least 3 concrete suggestions, each with a brief justification.
+                            6. **Prioritize Feasibility**: For each suggested gap, briefly assess its feasibility based on current methodologies or technologies mentioned in the papers, and suggest a potential approach to address it (e.g., experimental, simulation-based, or theoretical).
+
+                            **Input Context**: You have access to [number, e.g., "10"] retrieved research papers or document chunks stored in a vector database, with summaries and metadata including titles, abstracts, and key sections (e.g., results, conclusions). If figures or tables are available, consider their data (e.g., mechanical properties, phase diagrams) in your analysis.
+
+                            **Output Format**:
+                            - **Summary of Key Findings**: [Brief summary, 3-4 sentences]
+                            - **Methodologies Used**: [List key methods, 2-3 sentences]
+                            - **Limitations Identified**: [List limitations, 2-3 sentences]
+                            - **Contradictions Noted**: [Describe contradictions or lack thereof, 2-3 sentences]
+                            - **Research Gaps and Suggestions**:
+                            - Gap 1: [Description and justification]
+                                - Feasibility: [Brief assessment and suggested approach]
+                            - Gap 2: [Description and justification]
+                                - Feasibility: [Brief assessment and suggested approach]
+                            - Gap 3: [Description and justification]
+                                - Feasibility: [Brief assessment and suggested approach]
+
+                            **Constraints**:
+                            - Be concise, precise, and avoid speculation beyond the provided data.
+                            - Focus on gaps relevant to [specific topic, e.g., "RHEAs"] and avoid overly broad suggestions.
+                            - If insufficient data is available to identify gaps, state this clearly and suggest ways to refine the retrieval (e.g., adjust query terms, include more recent papers).
+                            - Use technical language appropriate for materials science but ensure clarity for a researcher audience.
+
+                            **Example Context (if needed)**: The papers discuss topics like [e.g., "dislocation dynamics, phase stability, or high-temperature performance of RHEAs"], with some including experimental data (e.g., tensile strength tests) and others using simulations (e.g., molecular dynamics).
+
+                            Please analyze the provided papers and generate a detailed research gap analysis following the structure above.'''
+                            + "\n\n".join(abstracts)
+                        )
+                        with st.spinner("LLM is analyzing research gaps..."):
+                            try:
+                                gap_response = st.session_state.llm.invoke(gap_prompt)
+                                st.session_state['qa_answer'] = gap_response
+                                st.caption(f"🔍 Debug: Gap analysis completed, stored answer length: {len(gap_response)}")
+                            except Exception as e:
+                                st.session_state['qa_answer'] = f"Error: {e}"
+                                st.caption(f"🔍 Debug: Gap analysis failed with error: {e}")
+                    else:
+                        st.session_state['qa_answer'] = "No abstracts found or LLM not loaded."
+                        st.caption("🔍 Debug: No abstracts or LLM not available for gap analysis")
             else:
-                st.warning("Please enter a question")
-    # Display answer (normal or gap)
-    if st.session_state.get('qa_answer'):
-        if gap_toggle:
-            st.markdown("**LLM-Identified Research Gaps:**")
+                st.caption("🔍 Debug: Calling handle_question_submission for normal question")
+                handle_question_submission(question, llm_model, selected_papers, search_type, num_results)
+            
+            # Rerun to display the answer in the full-width section below
+            st.rerun()
         else:
-            st.markdown(create_glass_card("📝 Answer"), unsafe_allow_html=True)
-            if st.session_state.llm:
-                st.caption(f"Generated using: {llm_model}")
-            else:
-                st.caption("LLM not available - showing search results summary")
-        st.markdown(
-            create_content_card(st.session_state['qa_answer'], "margin: 0.25rem 0 0.5rem 0; padding: 0.5rem 0.75rem; background: rgba(0,0,0,0.1);"),
-            unsafe_allow_html=True
-        )
+            st.warning("Please enter a question")
 
 
 def handle_question_submission(question: str, llm_model: str, selected_papers: List[str], search_type: str, num_results: int):
@@ -568,16 +569,8 @@ def handle_question_submission(question: str, llm_model: str, selected_papers: L
                 answer = "No relevant documents found for your question."
             search_results = []
     
-    # Display answer card
-    st.markdown(create_glass_card("📝 Answer"), unsafe_allow_html=True)
-    if st.session_state.llm:
-        st.caption(f"Generated using: {llm_model}")
-    else:
-        st.caption("LLM not available - showing search results summary")
-    st.markdown(
-        create_content_card(answer, "margin: 0.25rem 0 0.5rem 0; padding: 0.5rem 0.75rem; background: rgba(0,0,0,0.1);"),
-        unsafe_allow_html=True
-    )
+    # Store answer in session state for display_question_section to use
+    st.session_state['qa_answer'] = answer
     
     # Display sources card
     if search_results:
@@ -629,6 +622,7 @@ def handle_question_submission(question: str, llm_model: str, selected_papers: L
                     create_content_card(preview_text, "font-size: 0.9em; margin: 0.25rem 0; padding: 0.5rem 0.75rem;"),
                     unsafe_allow_html=True
                 )
+    
     # Suggested Follow Up Reading (right column)
     if search_results:
         # Only show research papers (not meeting notes)
@@ -978,22 +972,134 @@ def main():
         tab1, tab2, tab4 = st.tabs(["💬 Ask Question", "🖼️ Paper Preview", "🌐 Scholar Abstract Scraper"])
     
     with tab1:
+        # Left column: Question input and optimization
         col_ask, col_suggest = st.columns([1, 1.5])
         with col_ask:
             st.markdown(create_glass_card("💬 Ask Questions"), unsafe_allow_html=True)
             gap_toggle = st.checkbox("Identify Research Gaps", value=False, key="gap_toggle", disabled=st.session_state.llm is None, help="LLM required for research gap analysis")
             display_question_section(llm_model, selected_papers, search_type, num_results, gap_toggle=gap_toggle)
+        
+        # Right column: Follow-up reading (with max height constraint)
         with col_suggest:
-            # At the very top of the right column: toggle, year, and results
-            import datetime
-            current_year = datetime.datetime.now().year
-            years = ["All"] + [str(y) for y in range(current_year, 1999, -1)]
-            col_year, col_toggle = st.columns([1, 1])
-            with col_year:
-                scholar_year = st.selectbox("Year limit", years, index=0, key="year_limit", label_visibility="visible")
-            with col_toggle:
-                scholar_toggle = st.checkbox("Suggest follow-up reading", value=False)
-            scholar_search_and_display()
+            # Create a container with max height constraint
+            with st.container():
+                # At the very top of the right column: toggle, year, and results
+                import datetime
+                current_year = datetime.datetime.now().year
+                years = ["All"] + [str(y) for y in range(current_year, 1999, -1)]
+                col_year, col_toggle = st.columns([1, 1])
+                with col_year:
+                    scholar_year = st.selectbox("Year limit", years, index=0, key="year_limit", label_visibility="visible")
+                with col_toggle:
+                    scholar_toggle = st.checkbox("Suggest follow-up reading", value=False)
+                
+                # Follow-up reading section with max height
+                scholar_search_and_display()
+        
+        # Full-width answer section below both columns
+        st.markdown("---")
+        
+        # Display answer from session state (if exists)
+        if st.session_state.get('qa_answer'):
+            if gap_toggle:
+                st.markdown("**LLM-Identified Research Gaps:**")
+            else:
+                st.markdown(create_glass_card("📝 Answer"), unsafe_allow_html=True)
+                if st.session_state.llm:
+                    st.caption(f"Generated using: {llm_model}")
+                else:
+                    st.caption("LLM not available - showing search results summary")
+            st.markdown(
+                create_content_card(st.session_state['qa_answer'], "margin: 0.25rem 0 0.5rem 0; padding: 0.5rem 0.75rem; background: rgba(0,0,0,0.1);"),
+                unsafe_allow_html=True
+            )
+            
+            # Follow-up question section
+            st.markdown("---")
+            st.markdown(create_glass_card("🤔 Follow-up Question"), unsafe_allow_html=True)
+            st.caption("Ask a follow-up question based on the previous answer. The previous answer will be included as context.")
+            
+            follow_up_question = st.text_area(
+                "Follow-up Question:",
+                placeholder="Ask a follow-up question based on the previous answer...",
+                height=80,
+                key="follow_up_question"
+            )
+            
+            col_followup1, col_followup2 = st.columns([1, 1])
+            with col_followup1:
+                if st.button("🔍 Ask Follow-up", type="secondary", use_container_width=True):
+                    if follow_up_question.strip():
+                        if st.session_state.llm:
+                            # Create follow-up prompt with previous answer as context
+                            follow_up_prompt = f"""You are a materials science research expert. Based on the previous answer and the follow-up question, provide a comprehensive response.
+
+Previous Answer:
+{st.session_state['qa_answer']}
+
+Follow-up Question: {follow_up_question}
+
+Instructions:
+1. Use the previous answer as context and background information
+2. Address the follow-up question specifically
+3. Build upon the information from the previous answer
+4. Provide additional insights or clarifications as needed
+5. Maintain consistency with the previous response
+6. If the follow-up question requires new information not covered in the previous answer, acknowledge this and suggest how to obtain that information
+
+Response:"""
+                            
+                            with st.spinner("Generating follow-up answer..."):
+                                try:
+                                    follow_up_answer = st.session_state.llm.invoke(follow_up_prompt)
+                                    # Store the follow-up answer
+                                    st.session_state['follow_up_answer'] = follow_up_answer
+                                    st.session_state['follow_up_question'] = follow_up_question
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error generating follow-up answer: {e}")
+                        else:
+                            st.error("LLM not available for follow-up questions. Please load an LLM model first.")
+                    else:
+                        st.warning("Please enter a follow-up question.")
+            
+            with col_followup2:
+                if st.button("🗑️ Clear Follow-up", type="secondary", use_container_width=True):
+                    # Clear follow-up related session state
+                    if 'follow_up_answer' in st.session_state:
+                        del st.session_state['follow_up_answer']
+                    if 'follow_up_question' in st.session_state:
+                        del st.session_state['follow_up_question']
+                    st.rerun()
+            
+            # Display follow-up answer if exists
+            if st.session_state.get('follow_up_answer'):
+                st.markdown("---")
+                st.markdown(create_glass_card("📝 Follow-up Answer"), unsafe_allow_html=True)
+                st.caption(f"Follow-up to: {st.session_state.get('follow_up_question', 'Unknown question')}")
+                st.markdown(
+                    create_content_card(st.session_state['follow_up_answer'], "margin: 0.25rem 0 0.5rem 0; padding: 0.5rem 0.75rem; background: rgba(0,0,0,0.1);"),
+                    unsafe_allow_html=True
+                )
+            
+            # Debug information in collapsible section
+            with st.expander("🔍 Debug Information", expanded=False):
+                st.caption(f"🔍 Debug: Answer stored in session state. Length: {len(st.session_state['qa_answer']) if st.session_state['qa_answer'] else 0}")
+                st.caption(f"🔍 Debug: Answer preview: {st.session_state['qa_answer'][:100] + '...' if st.session_state['qa_answer'] and len(st.session_state['qa_answer']) > 100 else st.session_state['qa_answer']}")
+                st.caption(f"🔍 Debug: gap_toggle: {gap_toggle}")
+                st.caption(f"🔍 Debug: optimized_question exists: {'optimized_question' in st.session_state}")
+                if 'optimized_question' in st.session_state:
+                    st.caption(f"🔍 Debug: optimized_question value: {st.session_state.optimized_question}")
+                st.caption(f"🔍 Debug: selected_papers count: {len(selected_papers) if selected_papers else 0}")
+                if selected_papers:
+                    st.caption(f"🔍 Debug: selected_papers: {selected_papers}")
+                # Follow-up debug info
+                if st.session_state.get('follow_up_answer'):
+                    st.caption(f"🔍 Debug: Follow-up answer length: {len(st.session_state['follow_up_answer'])}")
+                    st.caption(f"🔍 Debug: Follow-up question: {st.session_state.get('follow_up_question', 'Unknown')}")
+        else:
+            # Show placeholder when no answer exists
+            st.info("💡 Enter a question and click 'Ask Question' to see the answer here.")
 
     with tab2:
         display_preview_section(selected_papers)
@@ -1127,4 +1233,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    main()
