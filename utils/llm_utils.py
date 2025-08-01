@@ -112,7 +112,7 @@ def get_suggested_keywords() -> List[str]:
     return common_keywords
 
 
-def generate_answer(llm, question: str, search_results: List[Document]) -> str:
+def generate_answer(llm, question: str, search_results: List[Document], summarize: bool = False) -> str:
     """Generate answer using LLM based on search results"""
     if not llm:
         # Return a helpful message when LLM is not available
@@ -175,6 +175,10 @@ Instructions:
 6. If specific papers are mentioned, cite them in your response
 
 Answer:"""
+        
+        # Add summary requirement if summarize is enabled
+        if summarize:
+            prompt += "\n\n**IMPORTANT**: After providing the detailed answer above, conclude with a concise summary in exactly 3-5 sentences that captures the key points of your response."
         
         answer = llm.invoke(prompt)
         return answer
