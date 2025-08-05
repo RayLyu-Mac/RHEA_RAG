@@ -303,15 +303,9 @@ Tags: {', '.join(tags)}
         
         context = "\n".join(context_parts)
         
-        # Create prompt
-        prompt = f"""Based on the following meeting notes, please answer the question. Provide specific references to the meeting notes when possible.
-
-Meeting Notes:
-{context}
-
-Question: {question}
-
-Answer:"""
+        # Create prompt using centralized prompt
+        from .prompts import get_meeting_notes_prompt
+        prompt = get_meeting_notes_prompt(context, question)
         
         # Get LLM response
         response = llm.invoke(prompt)

@@ -132,12 +132,8 @@ def llm_grouped_network_interactive(selected_papers, llm, user_question=None):
         user_question = "What is the main mechanism or conclusion discussed in this paper? Summarize in one sentence."
     for paper in selected_papers:
         abstract = paper.get('abstract', '')
-        prompt = (
-            f"Given the following abstract and the user's question:\n\n"
-            f"Question: {user_question}\n\n"
-            f"Abstract:\n{abstract}\n\n"
-            f"What is the main mechanism, type, or conclusion discussed in this paper relevant to the question? Summarize in one sentence."
-        )
+        from .prompts import get_paper_grouping_prompt
+        prompt = get_paper_grouping_prompt(user_question, abstract)
         try:
             group_label = llm.invoke(prompt)
         except Exception as e:

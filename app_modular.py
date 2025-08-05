@@ -47,7 +47,10 @@ from utils import (
     apply_theme_css, create_glass_card, create_content_card, create_optimize_card,
     display_theme_toggle, display_paper_selection, display_keyword_selection,
     # Notes utilities
-    display_notes_section
+    display_notes_section,
+    # Prompt management
+    get_research_gap_prompt, get_follow_up_prompt, get_scholar_summary_prompt,
+    get_llm_grouping_refinement_prompt, get_rag_flowchart_prompt
 )
 
 # Page configuration
@@ -79,7 +82,9 @@ def initialize_session_state():
         'current_selected_papers': [],  # Track currently selected papers for debug display
         'summarize_answers': False,  # Toggle for summarizing answers to 3-5 sentences
         'follow_up_history': [],  # Store all follow-up Q&A pairs
-        'selected_context_answers': []  # Track which follow-up answers are selected as context
+        'selected_context_answers': [],  # Track which follow-up answers are selected as context
+        'current_answer_as_context': False,  # Toggle for using current answer as context
+        'original_question': ""  # Store original question for export
     }
     
     for key, default_value in defaults.items():
@@ -479,6 +484,9 @@ def display_question_section(llm_model: str, selected_papers: List[str], search_
             st.caption(f"🔍 Debug: optimized_question value: {st.session_state.optimized_question}")
         
         if question.strip():
+            # Store original question for export
+            st.session_state['original_question'] = question
+            
             if gap_toggle:
                 if st.session_state.llm is None:
                     st.error("LLM is required for research gap analysis. Please load an LLM model first.")
@@ -493,46 +501,8 @@ def display_question_section(llm_model: str, selected_papers: List[str], search_
                             if abstract:
                                 abstracts.append(abstract)
                     if abstracts and st.session_state.llm:
-                        # Base gap analysis prompt
-                        base_gap_prompt = '''You are an expert research assistant specialized in materials science, tasked with analyzing a set of retrieved research papers to identify research gaps. The papers focus on [insert specific topic, e.g., "refractory high-entropy alloys (RHEAs)"] and have been retrieved from a vector database based on their relevance to the topic. Your goal is to synthesize key findings, methodologies, and limitations from these papers and identify underexplored areas, contradictions, or open questions that could guide future research. Follow these steps:
-
-                            1. **Summarize Key Findings**: Provide a concise summary of the main results, trends, or conclusions from the retrieved papers, focusing on [specific aspect, e.g., "mechanical properties, microstructure, or dislocation mechanisms in RHEAs"].
-                            2. **Identify Methodologies**: Highlight the primary experimental, computational, or theoretical approaches used in these papers, noting any recurring techniques or tools.
-                            3. **Analyze Limitations**: Point out explicitly stated limitations or challenges in the papers, such as incomplete datasets, specific alloy compositions not studied, or unexplored conditions (e.g., temperature, pressure).
-                            4. **Detect Contradictions**: Identify any conflicting findings or interpretations across the papers, such as differing conclusions about [specific aspect, e.g., "the role of lattice distortion in RHEA strength"].
-                            5. **Suggest Research Gaps**: Based on the summaries, limitations, and contradictions, propose specific research gaps or unanswered questions. Focus on areas that are underexplored, novel, or have potential for significant impact in [field, e.g., "RHEA design for aerospace applications"]. Provide at least 3 concrete suggestions, each with a brief justification.
-                            6. **Prioritize Feasibility**: For each suggested gap, briefly assess its feasibility based on current methodologies or technologies mentioned in the papers, and suggest a potential approach to address it (e.g., experimental, simulation-based, or theoretical).
-
-                            **Input Context**: You have access to [number, e.g., "10"] retrieved research papers or document chunks stored in a vector database, with summaries and metadata including titles, abstracts, and key sections (e.g., results, conclusions). If figures or tables are available, consider their data (e.g., mechanical properties, phase diagrams) in your analysis.
-
-                            **Output Format**:
-                            - **Summary of Key Findings**: [Brief summary, 3-4 sentences]
-                            - **Methodologies Used**: [List key methods, 2-3 sentences]
-                            - **Limitations Identified**: [List limitations, 2-3 sentences]
-                            - **Contradictions Noted**: [Describe contradictions or lack thereof, 2-3 sentences]
-                            - **Research Gaps and Suggestions**:
-                            - Gap 1: [Description and justification]
-                                - Feasibility: [Brief assessment and suggested approach]
-                            - Gap 2: [Description and justification]
-                                - Feasibility: [Brief assessment and suggested approach]
-                            - Gap 3: [Description and justification]
-                                - Feasibility: [Brief assessment and suggested approach]
-
-                            **Constraints**:
-                            - Be concise, precise, and avoid speculation beyond the provided data.
-                            - Focus on gaps relevant to [specific topic, e.g., "RHEAs"] and avoid overly broad suggestions.
-                            - If insufficient data is available to identify gaps, state this clearly and suggest ways to refine the retrieval (e.g., adjust query terms, include more recent papers).
-                            - Use technical language appropriate for materials science but ensure clarity for a researcher audience.
-
-                            **Example Context (if needed)**: The papers discuss topics like [e.g., "dislocation dynamics, phase stability, or high-temperature performance of RHEAs"], with some including experimental data (e.g., tensile strength tests) and others using simulations (e.g., molecular dynamics).
-
-                            Please analyze the provided papers and generate a detailed research gap analysis following the structure above.'''
-                        
-                        # Add summary requirement if toggle is enabled
-                        if st.session_state.get('summarize_answers', False):
-                            base_gap_prompt += "\n\n**IMPORTANT**: After providing the detailed analysis above, conclude with a concise summary in exactly 3-5 sentences that captures the most important research gaps and their potential impact."
-                        
-                        gap_prompt = base_gap_prompt + "\n\n" + "\n\n".join(abstracts)
+                        # Use centralized prompt for research gap analysis
+                        gap_prompt = get_research_gap_prompt(abstracts, st.session_state.get('summarize_answers', False))
                         with st.spinner("LLM is analyzing research gaps..."):
                             try:
                                 gap_response = st.session_state.llm.invoke(gap_prompt)
@@ -933,11 +903,7 @@ def scholar_search_and_display():
             count += 1
         # LLM summary of all abstracts (if available)
         if abstracts and st.session_state.llm:
-            summary_prompt = (
-                "You are a scientific research assistant. Given the following abstracts from Google Scholar search results, "
-                "summarize the main findings and trends in 5 sentences. Present the summary as a numbered list.\n\n"
-                "ABSTRACTS:\n" + '\n\n'.join(abstracts) + "\n\nSUMMARY (5 sentences as a list):"
-            )
+            summary_prompt = get_scholar_summary_prompt(abstracts)
             try:
                 summary = st.session_state.llm.invoke(summary_prompt)
                 st.markdown(f"**Summary of Suggested Readings:**\n{summary}")
@@ -1096,14 +1062,20 @@ def main():
                                         st.rerun()
                 
                 # Show selected context summary
-                if st.session_state.selected_context_answers:
-                    selected_context = []
-                    for idx in st.session_state.selected_context_answers:
-                        if idx < len(st.session_state.follow_up_history):
-                            question, answer, _ = st.session_state.follow_up_history[idx]
-                            selected_context.append(f"Q{idx+1}: {question[:30]}...")
-                    
-                    st.caption(f"✅ Selected context: {', '.join(selected_context)}")
+                context_summary = []
+                
+                # Add current answer if selected
+                if st.session_state.get('current_answer_as_context', False):
+                    context_summary.append("Current Answer")
+                
+                # Add selected historical answers
+                for idx in st.session_state.selected_context_answers:
+                    if idx < len(st.session_state.follow_up_history):
+                        question, answer, _ = st.session_state.follow_up_history[idx]
+                        context_summary.append(f"Q{idx+1}: {question[:30]}...")
+                
+                if context_summary:
+                    st.caption(f"✅ Selected context: {', '.join(context_summary)}")
             
             follow_up_question = st.text_area(
                 "Follow-up Question:",
@@ -1117,38 +1089,31 @@ def main():
                 if st.button("🔍 Ask Follow-up", type="secondary", use_container_width=True):
                     if follow_up_question.strip():
                         if st.session_state.llm:
-                            # Build context from selected follow-up answers
+                            # Build context from selected follow-up answers and current answer
                             additional_context = ""
+                            context_parts = []
+                            
+                            # Include current answer as context if toggle is enabled
+                            if st.session_state.get('current_answer_as_context', False) and st.session_state.get('follow_up_answer'):
+                                context_parts.append(f"Current Follow-up Q&A:\nQ: {st.session_state.get('follow_up_question', 'Unknown')}\nA: {st.session_state['follow_up_answer']}")
+                            
+                            # Include selected historical follow-up answers
                             if st.session_state.selected_context_answers:
-                                context_parts = []
                                 for idx in st.session_state.selected_context_answers:
                                     if idx < len(st.session_state.follow_up_history):
                                         question, answer, _ = st.session_state.follow_up_history[idx]
                                         context_parts.append(f"Previous Q&A {idx+1}:\nQ: {question}\nA: {answer}")
-                                if context_parts:
-                                    additional_context = "\n\nAdditional Context from Previous Follow-ups:\n" + "\n\n".join(context_parts)
                             
-                            # Create follow-up prompt with previous answer and selected context
-                            follow_up_prompt = f"""You are a materials science research expert. Based on the previous answer, selected context from previous follow-ups, and the new follow-up question, provide a comprehensive response.
-
-Previous Answer:
-{st.session_state['qa_answer']}{additional_context}
-
-New Follow-up Question: {follow_up_question}
-
-Instructions:
-1. Use the previous answer and any selected context as background information
-2. Address the new follow-up question specifically
-3. Build upon the information from the previous answer and context
-4. Provide additional insights or clarifications as needed
-5. Maintain consistency with the previous responses
-6. If the follow-up question requires new information not covered in the previous answers, acknowledge this and suggest how to obtain that information
-
-Response:"""
+                            if context_parts:
+                                additional_context = "\n\nAdditional Context from Follow-ups:\n" + "\n\n".join(context_parts)
                             
-                            # Add summary requirement if toggle is enabled
-                            if st.session_state.get('summarize_answers', False):
-                                follow_up_prompt += "\n\n**IMPORTANT**: After providing the detailed response above, conclude with a concise summary in exactly 3-5 sentences that captures the key points of your answer."
+                            # Use centralized prompt for follow-up questions
+                            follow_up_prompt = get_follow_up_prompt(
+                                previous_answer=st.session_state['qa_answer'],
+                                additional_context=additional_context,
+                                follow_up_question=follow_up_question,
+                                summarize=st.session_state.get('summarize_answers', False)
+                            )
                             
                             with st.spinner("Generating follow-up answer..."):
                                 try:
@@ -1164,6 +1129,7 @@ Response:"""
                                     
                                     # Clear selected context after using it
                                     st.session_state.selected_context_answers = []
+                                    st.session_state.current_answer_as_context = False
                                     
                                     st.rerun()
                                 except Exception as e:
@@ -1183,6 +1149,7 @@ Response:"""
                     # Clear history and selected context
                     st.session_state.follow_up_history = []
                     st.session_state.selected_context_answers = []
+                    st.session_state.current_answer_as_context = False
                     st.rerun()
             
             # Display current follow-up answer if exists
@@ -1195,16 +1162,69 @@ Response:"""
                 if st.session_state.get('summarize_answers', False):
                     st.caption("📝 **Summarized to 3-5 sentences**")
                 
-                # Display in a card format similar to history cards
-                with st.expander("📋 View Latest Answer", expanded=True):
+                # Display current follow-up as a selectable context card
+                with st.expander("📋 Current Follow-up Answer", expanded=True):
                     st.markdown(f"**Question:** {st.session_state.get('follow_up_question', 'Unknown question')}")
                     st.markdown(f"**Answer:** {st.session_state['follow_up_answer']}")
                     st.markdown(f"**Time:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    
+                    # Toggle to select this answer as context for next question
+                    st.markdown("---")
+                    if st.checkbox("✅ Use this answer as context for next follow-up question", key="current_context_toggle"):
+                        st.session_state['current_answer_as_context'] = True
+                        st.caption("✅ This answer will be included as context for your next follow-up question")
+                    else:
+                        st.session_state['current_answer_as_context'] = False
+                        st.caption("ℹ️ This answer will not be included as context")
+            
+            # Export Q&A session to markdown
+            st.markdown("---")
+            st.markdown(create_glass_card("📄 Export Q&A Session"), unsafe_allow_html=True)
+            
+            # Generate markdown content
+            if st.session_state.get('qa_answer') or st.session_state.get('follow_up_history'):
+                # Create markdown content
+                md_content = "# Q&A Session Report\n\n"
+                md_content += f"**Generated on:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                 
-                st.markdown(
-                    create_content_card(st.session_state['follow_up_answer'], "margin: 0.25rem 0 0.5rem 0; padding: 0.5rem 0.75rem; background: rgba(0,0,0,0.1);"),
-                    unsafe_allow_html=True
+                # Add main question and answer
+                if st.session_state.get('qa_answer'):
+                    md_content += "## Main Question & Answer\n\n"
+                    md_content += f"**Question:** {st.session_state.get('original_question', 'Unknown question')}\n\n"
+                    md_content += f"**Answer:**\n{st.session_state['qa_answer']}\n\n"
+                
+                # Add follow-up history
+                if st.session_state.get('follow_up_history'):
+                    md_content += "## Follow-up Questions & Answers\n\n"
+                    for i, (question, answer, timestamp) in enumerate(st.session_state.follow_up_history, 1):
+                        md_content += f"### Follow-up {i}\n\n"
+                        md_content += f"**Question:** {question}\n\n"
+                        md_content += f"**Answer:**\n{answer}\n\n"
+                        md_content += f"**Timestamp:** {timestamp}\n\n"
+                        md_content += "---\n\n"
+                
+                # Add current follow-up if exists
+                if st.session_state.get('follow_up_answer'):
+                    md_content += "## Latest Follow-up\n\n"
+                    md_content += f"**Question:** {st.session_state.get('follow_up_question', 'Unknown question')}\n\n"
+                    md_content += f"**Answer:**\n{st.session_state['follow_up_answer']}\n\n"
+                    md_content += f"**Timestamp:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                
+                # Create download button
+                filename = f"qa_session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+                st.download_button(
+                    label="📥 Download Q&A Session as Markdown",
+                    data=md_content,
+                    file_name=filename,
+                    mime="text/markdown",
+                    help="Download the complete Q&A session including main question, answer, and all follow-ups"
                 )
+                
+                # Show preview
+                with st.expander("👀 Preview Markdown Content", expanded=False):
+                    st.code(md_content, language="markdown")
+            else:
+                st.info("No Q&A content available to export. Ask a question first!")
             
             # Debug information in collapsible section
             with st.expander("🔍 Debug Information", expanded=False):
@@ -1264,14 +1284,7 @@ Response:"""
 
                 # LLM refinement step
                 table_str = "\n".join([f"{row['Paper Title']} | {row['Group']}" for row in table_data])
-                refine_prompt = (
-                    "Given the following list of papers and their initial groupings, refine the groups to be more scientifically meaningful. "
-                    "Consider grouping by crystal lattice type, composition, or other relevant scientific criteria. "
-                    "Output a new table with columns: Paper Title, Refined Group.\n\n"
-                    "Paper Title | Group\n"
-                    f"{table_str}\n"
-                    "Refined Table:"
-                )
+                refine_prompt = get_llm_grouping_refinement_prompt(table_str)
                 try:
                     refined_output = st.session_state.llm.invoke(refine_prompt)
                     # Try to parse the LLM's output into a table
@@ -1327,13 +1340,7 @@ Response:"""
                 button_help = 'LLM must be loaded to generate DOT code.' if button_disabled else 'Generate a RAG pipeline flowchart using LLM.'
                 if st.button('Generate RAG Flowchart (DOT) with LLM', disabled=button_disabled, help=button_help):
                     paper_titles = ', '.join([p['file_name'] for p in st.session_state.paper_list if p['file_name'] in selected_papers])
-                    prompt = (
-                        "Generate a Graphviz DOT flowchart representing a Retrieval-Augmented Generation (RAG) pipeline. "
-                        "Include nodes for Query, Retrieve Documents, Generate Response, and Display, with directed edges connecting them in sequence. "
-                        "Use clear, concise DOT syntax suitable for rendering with the graphviz Python library. "
-                        f"The following papers are selected as context: {paper_titles if paper_titles else 'None'}. "
-                        "Only output the DOT code, no explanation."
-                    )
+                    prompt = get_rag_flowchart_prompt(paper_titles if paper_titles else 'None')
                     try:
                         dot_code = st.session_state.llm.invoke(prompt)
                         st.session_state['rag_dot_code'] = dot_code

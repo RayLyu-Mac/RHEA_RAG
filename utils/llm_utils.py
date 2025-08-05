@@ -37,7 +37,7 @@ def get_available_ollama_models() -> List[str]:
             llm_models = []
             for model in models:
                 # Include models that are likely to be LLMs
-                if any(keyword in model.lower() for keyword in ["qwen", "gemma", "llama", "mistral", "codellama", "phi", "vicuna", "alpaca"]):
+                if any(keyword in model.lower() for keyword in ["qwen", "gemma", "llama", "mistral", "codellama", "phi", "vicuna", "alpaca","deepseek"]):
                     llm_models.append(model)
             
             return sorted(llm_models) if llm_models else ["qwen3:14b", "gemma3:4b"]
@@ -58,21 +58,8 @@ def optimize_question(llm, original_question: str) -> Tuple[str, List[str]]:
         return original_question, static_keywords
     
     try:
-        optimization_prompt = f"""You are a materials science research expert. Optimize the following question for better search in a scientific paper database about Refractory High-Entropy Alloys (RHEA).
-
-Original question: "{original_question}"
-
-Tasks:
-1. Rewrite the question to be more specific and technical for materials science literature search
-2. Suggest 5-8 relevant keywords that would help retrieve relevant papers
-
-Format your response as:
-OPTIMIZED QUESTION: [your optimized question]
-KEYWORDS: keyword1, keyword2, keyword3, keyword4, keyword5
-
-Focus on materials science terminology like: microstructure, precipitation, dislocation, grain boundary, mechanical properties, strengthening mechanisms, phase formation, etc.
-
-Response:"""
+        from .prompts import get_question_optimization_prompt
+        optimization_prompt = get_question_optimization_prompt(original_question)
         
         response = llm.invoke(optimization_prompt)
         
@@ -158,27 +145,9 @@ Found {len(search_results)} relevant documents. Here are the top results:
         
         combined_context = "\n".join(context_parts)
         
-        # Generate answer
-        prompt = f"""You are a materials science research expert. Based on the following context from scientific papers, answer the user's question comprehensively and accurately.
-
-Context from papers:
-{combined_context}
-
-Question: {question}
-
-Instructions:
-1. Provide a comprehensive answer based on the context provided
-2. Focus on materials science concepts, mechanisms, and relationships
-3. If figures are mentioned in the context, reference them appropriately
-4. Use technical terminology appropriately
-5. Structure your answer clearly with main points and supporting details
-6. If specific papers are mentioned, cite them in your response
-
-Answer:"""
-        
-        # Add summary requirement if summarize is enabled
-        if summarize:
-            prompt += "\n\n**IMPORTANT**: After providing the detailed answer above, conclude with a concise summary in exactly 3-5 sentences that captures the key points of your response."
+        # Generate answer using centralized prompt
+        from .prompts import get_answer_generation_prompt
+        prompt = get_answer_generation_prompt(combined_context, question, summarize)
         
         answer = llm.invoke(prompt)
         return answer

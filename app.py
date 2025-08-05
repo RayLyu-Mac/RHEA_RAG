@@ -6,6 +6,8 @@ from pathlib import Path
 from PIL import Image
 import json
 import requests
+import networkx as nx
+import plotly.graph_objects as go
 
 # Add parent directory to path to import vectorized module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -14,6 +16,12 @@ from langchain.vectorstores import Chroma
 from langchain.embeddings import OllamaEmbeddings
 from langchain.llms import Ollama
 from langchain_core.output_parsers import StrOutputParser
+
+# Import correlation utilities
+from utils.paper_correlations import (
+    PaperCorrelationManager, initialize_sss_correlations,
+    display_correlation_interface
+)
 
 # Page configuration
 st.set_page_config(
@@ -44,6 +52,8 @@ if 'suggested_keywords' not in st.session_state:
     st.session_state.suggested_keywords = []
 if 'selected_keywords' not in st.session_state:
     st.session_state.selected_keywords = []
+if 'correlation_manager' not in st.session_state:
+    st.session_state.correlation_manager = None
 
 @st.cache_resource
 def load_vectorstore():
@@ -338,6 +348,32 @@ def search_papers(question, selected_papers=None, search_type="both", k=5):
         
         # Prepare context
         context_parts = []
+        
+        # Add correlation context if available
+        correlation_context = ""
+        if st.session_state.correlation_manager:
+            # Get papers found in search results
+            found_papers = [doc.metadata.get('file_name', '').replace('.pdf', '') for doc in search_results]
+            
+            # Find correlations for these papers
+            all_correlations = []
+            for paper in found_papers:
+                correlations = st.session_state.correlation_manager.search_correlations(paper)
+                all_correlations.extend(correlations)
+            
+            # Remove duplicates and format correlation context
+            if all_correlations:
+                unique_correlations = {}
+                for corr in all_correlations:
+                    key = f"{corr.source}->{corr.target}"
+                    if key not in unique_correlations:
+                        unique_correlations[key] = corr
+                
+                correlation_context = "\n\n📊 **Paper Correlations Found:**\n"
+                for corr in unique_correlations.values():
+                    correlation_context += f"• **{corr.source}** → **{corr.target}**: {corr.relationship_type} - {corr.description} (Strength: {corr.strength})\n"
+        
+        # Add document context
         for i, doc in enumerate(search_results):
             paper_name = doc.metadata.get('file_name', 'Unknown Paper')
             doc_type = doc.metadata.get('document_type', 'unknown')
@@ -350,7 +386,7 @@ def search_papers(question, selected_papers=None, search_type="both", k=5):
             context_parts.append(content)
             context_parts.append("---")
         
-        combined_context = "\n".join(context_parts)
+        combined_context = correlation_context + "\n".join(context_parts)
         
         # Generate answer
         if st.session_state.llm:
@@ -883,6 +919,13 @@ def main():
     if not st.session_state.available_models or st.session_state.available_models == ["qwen3:14b", "gemma3:4b"]:
         st.session_state.available_models = get_available_ollama_models()
     
+    # Initialize correlation manager
+    if st.session_state.correlation_manager is None:
+        st.session_state.correlation_manager = PaperCorrelationManager()
+        # Initialize SSS correlations if not exists
+        if "Solid Solution Strengthening (SSS)" not in st.session_state.correlation_manager.topics:
+            st.session_state.correlation_manager = initialize_sss_correlations()
+    
     # Sidebar - All controls and settings
     with st.sidebar:
         # Theme toggle
@@ -1035,13 +1078,17 @@ def main():
                 return
         
     
-    # Main content area - simplified layout
-    if selected_papers:
-        # Give more space to preview when papers are selected
-        col1, col2 = st.columns([1.5, 1.5])
-    else:
-        # Default layout
-        col1, col2 = st.columns([2, 1])
+    # Main content area - Tab-based layout
+    tab1, tab2, tab3 = st.tabs(["🔍 Search & QA", "📊 Paper Correlations", "📈 Network Analysis"])
+    
+    with tab1:
+        # Search & QA Tab
+        if selected_papers:
+            # Give more space to preview when papers are selected
+            col1, col2 = st.columns([1.5, 1.5])
+        else:
+            # Default layout
+            col1, col2 = st.columns([2, 1])
     
     with col1:
         # Question input card
@@ -1352,6 +1399,345 @@ def main():
             2. Ask a question to see relevant papers
             3. View abstracts, keywords, and figures here
             """)
+    
+    with tab2:
+        # Paper Correlations Tab
+        st.header("📊 Paper Correlation Management")
+        
+        # Initialize correlation manager if not already done
+        if st.session_state.correlation_manager is None:
+            st.session_state.correlation_manager = PaperCorrelationManager()
+            if "Solid Solution Strengthening (SSS)" not in st.session_state.correlation_manager.topics:
+                st.session_state.correlation_manager = initialize_sss_correlations()
+        
+        # Display correlation interface within the tab
+        if st.session_state.correlation_manager:
+            # Sidebar for navigation within the tab
+            st.sidebar.header("Correlation Navigation")
+            page = st.sidebar.selectbox(
+                "Choose a page",
+                ["Overview", "Add Correlation", "View Correlations", "Network Visualization", "Export Data"]
+            )
+            
+            if page == "Overview":
+                # Display overview of all topics and correlations
+                st.subheader("📈 Research Topics Overview")
+                
+                for topic_name, topic in st.session_state.correlation_manager.topics.items():
+                    with st.expander(f"🔬 {topic_name} ({len(topic.papers)} papers, {len(topic.correlations)} correlations)"):
+                        st.write(f"**Description:** {topic.description}")
+                        
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.write("**Papers:**")
+                            for paper in topic.papers:
+                                st.write(f"• {paper}")
+                        
+                        with col2:
+                            st.write("**Correlation Types:**")
+                            corr_types = set(corr.relationship_type for corr in topic.correlations)
+                            for corr_type in corr_types:
+                                count = len([c for c in topic.correlations if c.relationship_type == corr_type])
+                                st.write(f"• {corr_type}: {count}")
+            
+            elif page == "Add Correlation":
+                # Display interface for adding new correlations
+                st.subheader("➕ Add New Correlation")
+                
+                # Topic selection
+                topic_name = st.selectbox("Select Topic", list(st.session_state.correlation_manager.topics.keys()))
+                
+                if topic_name:
+                    topic = st.session_state.correlation_manager.topics[topic_name]
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        source = st.selectbox("Source Paper", topic.papers)
+                        relationship_type = st.text_input("Relationship Type", placeholder="e.g., shear_modulus_mismatch")
+                        strength = st.slider("Correlation Strength", 0.0, 1.0, 0.5, 0.1)
+                    
+                    with col2:
+                        target = st.selectbox("Target Paper", topic.papers)
+                        description = st.text_area("Description", placeholder="Describe the relationship...")
+                        evidence = st.text_area("Evidence (Optional)", placeholder="Supporting evidence...")
+                    
+                    if st.button("Add Correlation"):
+                        if source != target and relationship_type and description:
+                            from utils.paper_correlations import PaperCorrelation
+                            correlation = PaperCorrelation(
+                                source=source,
+                                target=target,
+                                relationship_type=relationship_type,
+                                description=description,
+                                strength=strength,
+                                evidence=evidence if evidence else None
+                            )
+                            
+                            if st.session_state.correlation_manager.add_correlation(topic_name, correlation):
+                                st.success("Correlation added successfully!")
+                            else:
+                                st.error("Failed to add correlation.")
+                        else:
+                            st.error("Please fill in all required fields and ensure source and target are different.")
+            
+            elif page == "View Correlations":
+                # Display all correlations in a table format
+                st.subheader("📋 View Correlations")
+                
+                topic_filter = st.selectbox("Filter by Topic", ["All"] + list(st.session_state.correlation_manager.topics.keys()))
+                
+                if topic_filter == "All":
+                    df = st.session_state.correlation_manager.export_to_dataframe()
+                else:
+                    df = st.session_state.correlation_manager.export_to_dataframe(topic_filter)
+                
+                if not df.empty:
+                    st.dataframe(df, use_container_width=True)
+                    
+                    # Summary statistics
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Total Correlations", len(df))
+                    with col2:
+                        st.metric("Unique Papers", len(set(df['source'].tolist() + df['target'].tolist())))
+                    with col3:
+                        st.metric("Avg Strength", f"{df['strength'].mean():.2f}")
+                else:
+                    st.info("No correlations found.")
+            
+            elif page == "Network Visualization":
+                # Display network visualization of correlations
+                st.subheader("🕸️ Network Visualization")
+                
+                topic_filter = st.selectbox("Select Topic for Visualization", ["All"] + list(st.session_state.correlation_manager.topics.keys()))
+                
+                if topic_filter == "All":
+                    G = st.session_state.correlation_manager.create_network_graph()
+                else:
+                    G = st.session_state.correlation_manager.create_network_graph(topic_filter)
+                
+                if G.number_of_nodes() > 0:
+                    # Create network layout
+                    pos = nx.spring_layout(G, k=1, iterations=50)
+                    
+                    # Create edge traces
+                    edge_traces = []
+                    for edge in G.edges(data=True):
+                        x0, y0 = pos[edge[0]]
+                        x1, y1 = pos[edge[1]]
+                        
+                        edge_trace = go.Scatter(
+                            x=[x0, x1, None], y=[y0, y1, None],
+                            line=dict(width=2, color='gray'),
+                            hoverinfo='none',
+                            mode='lines'
+                        )
+                        edge_traces.append(edge_trace)
+                    
+                    # Create node trace
+                    node_x = []
+                    node_y = []
+                    node_text = []
+                    
+                    for node in G.nodes():
+                        x, y = pos[node]
+                        node_x.append(x)
+                        node_y.append(y)
+                        node_text.append(node)
+                    
+                    node_trace = go.Scatter(
+                        x=node_x, y=node_y,
+                        mode='markers+text',
+                        hoverinfo='text',
+                        text=node_text,
+                        textposition="middle center",
+                        marker=dict(
+                            showscale=True,
+                            colorscale='YlGnBu',
+                            size=20,
+                            colorbar=dict(
+                                thickness=15,
+                                title='Node Connections',
+                                xanchor='left',
+                                titleside='right'
+                            )
+                        )
+                    )
+                    
+                    # Color nodes by number of connections
+                    node_adjacencies = []
+                    for node in G.nodes():
+                        node_adjacencies.append(len(list(G.neighbors(node))))
+                    node_trace.marker.color = node_adjacencies
+                    
+                    # Create figure
+                    fig = go.Figure(data=edge_traces + [node_trace],
+                                   layout=go.Layout(
+                                       title=f'Paper Correlation Network - {topic_filter}',
+                                       showlegend=False,
+                                       hovermode='closest',
+                                       margin=dict(b=20,l=5,r=5,t=40),
+                                       xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                       yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
+                                   )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Network statistics
+                    st.write(f"**Network Statistics:**")
+                    st.write(f"• Nodes (Papers): {G.number_of_nodes()}")
+                    st.write(f"• Edges (Correlations): {G.number_of_edges()}")
+                    st.write(f"• Average Degree: {sum(dict(G.degree()).values()) / G.number_of_nodes():.2f}")
+                else:
+                    st.info("No network data available.")
+            
+            elif page == "Export Data":
+                # Display export options for correlation data
+                st.subheader("📤 Export Data")
+                
+                export_format = st.selectbox("Export Format", ["CSV", "JSON"])
+                topic_filter = st.selectbox("Filter by Topic", ["All"] + list(st.session_state.correlation_manager.topics.keys()))
+                
+                if st.button("Export Data"):
+                    if topic_filter == "All":
+                        df = st.session_state.correlation_manager.export_to_dataframe()
+                    else:
+                        df = st.session_state.correlation_manager.export_to_dataframe(topic_filter)
+                    
+                    if not df.empty:
+                        if export_format == "CSV":
+                            csv = df.to_csv(index=False)
+                            st.download_button(
+                                label="Download CSV",
+                                data=csv,
+                                file_name=f"paper_correlations_{topic_filter.lower().replace(' ', '_')}.csv",
+                                mime="text/csv"
+                            )
+                        else:  # JSON
+                            json_data = df.to_json(orient='records', indent=2)
+                            st.download_button(
+                                label="Download JSON",
+                                data=json_data,
+                                file_name=f"paper_correlations_{topic_filter.lower().replace(' ', '_')}.json",
+                                mime="application/json"
+                            )
+                    else:
+                        st.warning("No data to export.")
+        else:
+            st.error("Correlation manager not initialized.")
+    
+    with tab3:
+        # Network Analysis Tab
+        st.header("📈 Network Analysis & Visualization")
+        
+        if st.session_state.correlation_manager:
+            # Create network visualization
+            st.subheader("🕸️ Paper Correlation Network")
+            
+            # Topic selection for visualization
+            topic_filter = st.selectbox(
+                "Select Topic for Network Analysis",
+                ["All Topics"] + list(st.session_state.correlation_manager.topics.keys())
+            )
+            
+            if topic_filter == "All Topics":
+                G = st.session_state.correlation_manager.create_network_graph()
+            else:
+                G = st.session_state.correlation_manager.create_network_graph(topic_filter)
+            
+            if G.number_of_nodes() > 0:
+                # Create network layout
+                pos = nx.spring_layout(G, k=1, iterations=50)
+                
+                # Create edge traces
+                edge_traces = []
+                for edge in G.edges(data=True):
+                    x0, y0 = pos[edge[0]]
+                    x1, y1 = pos[edge[1]]
+                    
+                    edge_trace = go.Scatter(
+                        x=[x0, x1, None], y=[y0, y1, None],
+                        line=dict(width=2, color='gray'),
+                        hoverinfo='none',
+                        mode='lines'
+                    )
+                    edge_traces.append(edge_trace)
+                
+                # Create node trace
+                node_x = []
+                node_y = []
+                node_text = []
+                
+                for node in G.nodes():
+                    x, y = pos[node]
+                    node_x.append(x)
+                    node_y.append(y)
+                    node_text.append(node)
+                
+                node_trace = go.Scatter(
+                    x=node_x, y=node_y,
+                    mode='markers+text',
+                    hoverinfo='text',
+                    text=node_text,
+                    textposition="middle center",
+                    marker=dict(
+                        showscale=True,
+                        colorscale='YlGnBu',
+                        size=20,
+                        colorbar=dict(
+                            thickness=15,
+                            title='Node Connections',
+                            xanchor='left',
+                            titleside='right'
+                        )
+                    )
+                )
+                
+                # Color nodes by number of connections
+                node_adjacencies = []
+                for node in G.nodes():
+                    node_adjacencies.append(len(list(G.neighbors(node))))
+                node_trace.marker.color = node_adjacencies
+                
+                # Create figure
+                fig = go.Figure(data=edge_traces + [node_trace],
+                               layout=go.Layout(
+                                   title=f'Paper Correlation Network - {topic_filter}',
+                                   showlegend=False,
+                                   hovermode='closest',
+                                   margin=dict(b=20,l=5,r=5,t=40),
+                                   xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                   yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
+                               )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Network statistics
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Nodes (Papers)", G.number_of_nodes())
+                with col2:
+                    st.metric("Edges (Correlations)", G.number_of_edges())
+                with col3:
+                    st.metric("Avg Degree", f"{sum(dict(G.degree()).values()) / G.number_of_nodes():.2f}")
+                
+                # Show correlation details
+                st.subheader("📋 Correlation Details")
+                if topic_filter == "All Topics":
+                    df = st.session_state.correlation_manager.export_to_dataframe()
+                else:
+                    df = st.session_state.correlation_manager.export_to_dataframe(topic_filter)
+                
+                if not df.empty:
+                    st.dataframe(df, use_container_width=True)
+                else:
+                    st.info("No correlations found for this topic.")
+            else:
+                st.info("No network data available. Please add correlations first.")
+        else:
+            st.warning("Correlation manager not initialized. Please go to the Paper Correlations tab first.")
 
 if __name__ == "__main__":
     main() 
