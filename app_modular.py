@@ -53,6 +53,20 @@ from utils import (
     get_llm_grouping_refinement_prompt, get_rag_flowchart_prompt
 )
 
+# Import clean UI components
+from utils.clean_ui_components import (
+    apply_clean_theme, create_clean_card, create_clean_badge, create_clean_metric,
+    create_clean_divider, display_clean_header, display_clean_section_header, display_clean_stats,
+    display_clean_search_box, display_clean_loading_spinner, display_clean_empty_state,
+    create_clean_content_area, create_clean_navigation, apply_clean_tab_style
+)
+
+# Import paper keywords
+from utils.paper_keywords import get_paper_keywords, get_folder_keywords
+
+# Import logo utilities
+from utils.logo_display import display_logo_header, display_logo_in_sidebar
+
 # Page configuration
 st.set_page_config(
     page_title="Paper Search & QA System",
@@ -176,9 +190,11 @@ def display_sidebar() -> tuple:
     num_results = 5
     
     with st.sidebar:
+        # Logo in sidebar
+        display_logo_in_sidebar()
+        
         # Theme toggle
         display_theme_toggle()
-        st.divider()
         
         # Create tabs for main sections
         tab1, tab2 = st.tabs(["📚 Papers & Search", "📝 Meeting Notes"])
@@ -196,8 +212,6 @@ def display_sidebar() -> tuple:
                     st.caption("This means papers were loaded but not stored properly in session state")
                     selected_papers = []
                     st.session_state.current_selected_papers = []
-            
-            st.divider()
             
             # Settings Section
             with st.expander("⚙️ Settings", expanded=True):
@@ -245,16 +259,12 @@ def display_sidebar() -> tuple:
                 # Number of results
                 num_results = st.slider("Number of Results:", 1, 10, 5)
             
-            st.divider()
-            
             # Upload new paper section
             with st.expander("📤 Upload New Paper", expanded=False):
                 uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
                 if uploaded_file is not None:
                     if st.button("Process Paper"):
                         st.info("Paper processing feature coming soon!")
-            
-            st.divider()
             
             # System Status
             with st.expander("📊 System Status", expanded=False):
@@ -287,11 +297,12 @@ def display_sidebar() -> tuple:
                     paper_count = len(st.session_state.paper_list)
                     total_figures = sum(paper.get('figure_count', 0) for paper in st.session_state.paper_list)
                     
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("Total Papers", paper_count)
-                    with col2:
-                        st.metric("Total Figures", total_figures)
+                    # Display clean statistics
+                    stats_data = [
+                        {"label": "Total Papers", "value": str(paper_count), "change": "", "change_type": "neutral"},
+                        {"label": "Total Figures", "value": str(total_figures), "change": "", "change_type": "neutral"}
+                    ]
+                    display_clean_stats(stats_data)
                     
                     # Show folder distribution
                     folders = {}
@@ -392,13 +403,15 @@ def display_sidebar() -> tuple:
                     # Display paper statistics
                     if st.session_state.tracker_df is not None:
                         stats = get_paper_stats(st.session_state.paper_list)
+                        vectorized_count = len(st.session_state.tracker_df[st.session_state.tracker_df['vectorized'] == True])
                         
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.metric("Papers", stats['total_papers'])
-                            st.metric("Vectorized", len(st.session_state.tracker_df[st.session_state.tracker_df['vectorized'] == True]))
-                        with col2:
-                            st.metric("Figures", stats['total_figures'])
+                        # Display clean statistics
+                        stats_data = [
+                            {"label": "Papers", "value": str(stats['total_papers']), "change": "", "change_type": "neutral"},
+                            {"label": "Vectorized", "value": str(vectorized_count), "change": "", "change_type": "neutral"},
+                            {"label": "Figures", "value": str(stats['total_figures']), "change": "", "change_type": "neutral"}
+                        ]
+                        display_clean_stats(stats_data)
                 else:
                     st.error("❌ Failed to load vector store")
         
@@ -411,7 +424,8 @@ def display_sidebar() -> tuple:
 
 def display_question_section(llm_model: str, selected_papers: List[str], search_type: str, num_results: int, gap_toggle: bool = False):
     """Display the question input and optimization section"""
-    # Question input (no card title here)
+    # Question input area (no text, just the input)
+    
     question = st.text_area(
         "Your Question:",
         placeholder="Ask about precipitation strengthening, microstructure, mechanical properties, etc.",
@@ -434,17 +448,24 @@ def display_question_section(llm_model: str, selected_papers: List[str], search_
                 st.warning("Please enter a question first")
         # Display optimized question if available (in left column)
         if st.session_state.optimized_question:
-            st.markdown(create_optimize_card("🎯 Optimized Question"), unsafe_allow_html=True)
-            st.markdown(
-                create_content_card(st.session_state.optimized_question, "margin: 0.25rem 0 0.5rem 0; padding: 0.5rem 0.75rem;"),
-                unsafe_allow_html=True
-            )
+            st.markdown(create_clean_card(
+                title="Optimized Question",
+                content=st.session_state.optimized_question,
+                icon="✨",
+                variant="success"
+            ), unsafe_allow_html=True)
     with col_opt2:
         if st.button("🔑 Show Keywords", help="Show suggested keywords for better search"):
             st.session_state.suggested_keywords = get_suggested_keywords()
         # Keyword selection section (in right column)
         if st.session_state.suggested_keywords:
-            st.markdown(create_glass_card("🏷️ Select Keywords"), unsafe_allow_html=True)
+            st.markdown(create_clean_card(
+                title="Select Keywords",
+                content="Choose relevant keywords to enhance your search results.",
+                icon="🔑",
+                variant="info"
+            ), unsafe_allow_html=True)
+            
             st.markdown("**Select keywords to enhance your search:**")
             cols = st.columns(3)
             for i, keyword in enumerate(st.session_state.suggested_keywords):
@@ -469,12 +490,13 @@ def display_question_section(llm_model: str, selected_papers: List[str], search_
     if st.session_state.selected_keywords:
         st.markdown("**Selected Keywords:**")
         selected_keywords_text = " • ".join(st.session_state.selected_keywords)
-        st.markdown(
-            create_content_card(selected_keywords_text, "background: rgba(0, 0, 0, 0.1); margin: 0.25rem 0 0.5rem 0; padding: 0.5rem 0.75rem;"),
-            unsafe_allow_html=True
-        )
+        st.markdown(create_clean_card(
+            title="Selected Keywords",
+            content=selected_keywords_text,
+            icon="✅",
+            variant="success"
+        ), unsafe_allow_html=True)
     # Ask button - always show it, regardless of optimization status
-    st.markdown("---")
     if st.button("🔍 Ask Question", type="primary", use_container_width=True):
         # Debug information
         st.caption(f"🔍 Debug: Button clicked! Question: '{question}'")
@@ -642,127 +664,169 @@ def handle_question_submission(question: str, llm_model: str, selected_papers: L
 
 
 def display_preview_section(selected_papers: List[str]):
-    """Display the paper preview section"""
-    st.header("🖼️ Paper Preview")
+    """Display the paper preview section with card-based UI and folder buttons"""
+    display_clean_section_header("Paper Preview", "Browse and explore research papers")
     
     if selected_papers:
-        # Show detailed preview for selected papers
+        # Show selected papers in card format
+        st.markdown("### 📚 Selected Papers")
         for paper_name in selected_papers:
             paper_info = next((p for p in st.session_state.paper_list if p['file_name'] == paper_name), None)
             if paper_info:
-                # Debug: Show what we're trying to get
-                st.caption(f"🔍 Debug: Attempting to get content for {paper_name}")
-                st.caption(f"🔍 Debug: Vector store available: {st.session_state.vectorstore is not None}")
-                
-                # Get paper abstract and metadata from vector store
-                abstract_content, keywords = get_paper_abstract_and_keywords(st.session_state.vectorstore, paper_name)
-                
-                # Debug: Show what we got back
-                st.caption(f"🔍 Debug: Abstract content length: {len(abstract_content) if abstract_content else 0}")
-                st.caption(f"🔍 Debug: Keywords: {keywords}")
-                
-                # Try to get actual paper title from vector store
-                actual_title = None
-                if st.session_state.vectorstore:
-                    try:
-                        # Search for documents from this paper to get title
-                        results = st.session_state.vectorstore.similarity_search(
-                            paper_name, 
-                            k=5,
-                            filter={"file_name": paper_name}
-                        )
-                        for doc in results:
-                            if doc.metadata.get('title'):
-                                actual_title = doc.metadata.get('title')
-                                break
-                    except Exception as e:
-                        st.caption(f"🔍 Debug: Could not get title from vector store: {e}")
-                        # If vector store search fails, use filename as title
-                        actual_title = None
-                else:
-                    st.caption("🔍 Debug: Vector store not available for title retrieval")
-                
-                # Use actual title if available, otherwise use filename
-                display_title = actual_title if actual_title else paper_name.replace('.pdf', '').replace('_', ' ')
-                
-                # Create clickable title with Google Scholar link
-                scholar_query = display_title.replace(' ', '+')
-                scholar_url = f"https://scholar.google.com/scholar?q={scholar_query}"
-                
-                with st.expander(f"📄 {display_title}", expanded=True):
-                    # Add clickable Google Scholar link
-                    st.markdown(f"🔗 **[View on Google Scholar]({scholar_url})**")
-                    
-                    # Display abstract/content from vector store
-                    if abstract_content:
-                        st.markdown("**📝 Abstract/Content:**")
-                        st.markdown(
-                            create_content_card(
-                                abstract_content[:800] + ("..." if len(abstract_content) > 800 else ""),
-                                "font-size: 0.9em; max-height: 300px; overflow-y: auto;"
-                            ),
-                            unsafe_allow_html=True
-                        )
-                        
-                        # Show full content button if content is truncated
-                        if len(abstract_content) > 800:
-                            if st.button(f"📖 Show Full Content", key=f"full_content_{paper_name}"):
-                                st.markdown(
-                                    create_content_card(
-                                        abstract_content,
-                                        "font-size: 0.9em; max-height: 500px; overflow-y: auto;"
-                                    ),
-                                    unsafe_allow_html=True
-                                )
-                    else:
-                        st.warning("⚠️ No content available from vector store. This may be due to embedding model issues.")
-                    
-                    # Display keywords
-                    if keywords:
-                        st.markdown("**🔑 Keywords:**")
-                        st.markdown(
-                            create_content_card(keywords, "font-size: 0.85em; background: rgba(0, 0, 0, 0.1); color: #000000;"),
-                            unsafe_allow_html=True
-                        )
-                    
-                    # Display figures
-                    figures = get_paper_figures(paper_name)
-                    if figures:
-                        st.markdown("**🖼️ Figures:**")
-                        for fig_path in figures[:3]:  # Show max 3 figures per paper
-                            display_image_safely(fig_path)
-                    else:
-                        st.info("No figures available for this paper")
-                    
-                    # Paper stats
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Figures", paper_info['figure_count'])
-                    with col2:
-                        st.metric("Folder", paper_info['folder'])
-                    with col3:
-                        # Show vectorization status
-                        if paper_info.get('vectorized_model'):
-                            st.metric("Vectorized", f"✅ {paper_info['vectorized_model']}")
-                        else:
-                            st.metric("Vectorized", "❌ No")
-    
+                display_paper_card(paper_info, is_selected=True)
     else:
-        st.info("📋 Select papers or ask questions to see previews here")
+        # Display all papers grouped by folders with buttons
+        if st.session_state.paper_list:
+            # Group papers by folder
+            folder_order, folder_icons = get_folder_config()
+            papers_by_folder = {}
+            
+            for paper in st.session_state.paper_list:
+                folder = paper.get('folder', 'Unknown')
+                if folder not in papers_by_folder:
+                    papers_by_folder[folder] = []
+                papers_by_folder[folder].append(paper)
+            
+            # Initialize session state for folder selection
+            if 'selected_folder' not in st.session_state:
+                st.session_state.selected_folder = None
+            
+            
+            folder_cols = st.columns(len(folder_order))
+            
+            for i, folder in enumerate(folder_order):
+                if folder in papers_by_folder:
+                    icon = folder_icons.get(folder, '📁')
+                    paper_count = len(papers_by_folder[folder])
+                    
+                    with folder_cols[i]:
+                        if st.button(
+                            f"{icon} {folder}\n({paper_count} papers)",
+                            key=f"folder_btn_{folder}",
+                            use_container_width=True,
+                            type="primary" if st.session_state.selected_folder == folder else "secondary"
+                        ):
+                            st.session_state.selected_folder = folder
+                            st.rerun()
+            
+            # Display papers for selected folder
+            if st.session_state.selected_folder and st.session_state.selected_folder in papers_by_folder:
+                st.markdown(f"### 📚 Papers in {st.session_state.selected_folder}")
+                
+                # Create a grid layout for papers (2 columns)
+                papers = papers_by_folder[st.session_state.selected_folder]
+                cols = st.columns(2)
+                
+                for i, paper in enumerate(papers):
+                    with cols[i % 2]:
+                        display_paper_card(paper, is_selected=False)
+            
+            # Show "All Papers" option
+            elif st.session_state.selected_folder is None:
+                st.markdown("### 📚 All Papers")
+                st.info("👆 Select a research area above to view papers")
+                
+                # Show a few sample papers from all folders
+                sample_papers = []
+                for folder in folder_order:
+                    if folder in papers_by_folder:
+                        sample_papers.extend(papers_by_folder[folder][:2])  # Show 2 papers per folder
+                
+                if sample_papers:
+                    cols = st.columns(2)
+                    for i, paper in enumerate(sample_papers[:6]):  # Show max 6 sample papers
+                        with cols[i % 2]:
+                            display_paper_card(paper, is_selected=False)
+        else:
+            display_clean_empty_state(
+                icon="📋",
+                title="No Papers Available",
+                description="No papers found in the system. Please check the vector store configuration.",
+                action_text="Check System Status",
+                action_func=None
+            )
+
+
+def display_paper_card(paper_info: dict, is_selected: bool = False):
+    """Display a single paper in card format using clean UI components"""
+    # Get paper metadata
+    paper_name = paper_info['file_name']
+    folder = paper_info.get('folder', 'Unknown')
+    figure_count = paper_info.get('figure_count', 0)
+    vectorized_model = paper_info.get('vectorized_model', None)
+    
+    # Get abstract from vector store
+    abstract_content, _ = get_paper_abstract_and_keywords(st.session_state.vectorstore, paper_name)
+    
+    # Get keywords from our keywords file
+    keywords = get_paper_keywords(paper_name, folder)
+    
+    # Get actual title from vector store or use filename
+    actual_title = None
+    if st.session_state.vectorstore:
+        try:
+            results = st.session_state.vectorstore.similarity_search(
+                paper_name, 
+                k=5,
+                filter={"file_name": paper_name}
+            )
+            for doc in results:
+                if doc.metadata.get('title'):
+                    actual_title = doc.metadata.get('title')
+                    break
+        except Exception:
+            pass
+    
+    display_title = actual_title if actual_title else paper_name.replace('.pdf', '').replace('_', ' ')
+    
+    # Create Google Scholar link
+    scholar_query = display_title.replace(' ', '+')
+    scholar_url = f"https://scholar.google.com/scholar?q={scholar_query}"
+    
+    # Card variant based on selection status
+    card_variant = "success" if is_selected else "default"
+    
+    # Prepare content for the card
+    content_parts = []
+    
+    # Add metadata row
+    metadata_text = f"📁 {folder} | 🖼️ {figure_count} figures | {'✅ Vectorized' if vectorized_model else '❌ Not Vectorized'}"
+    content_parts.append(metadata_text)
+    
+    # Add abstract
+    abstract_text = abstract_content[:300] + '...' if abstract_content and len(abstract_content) > 300 else (abstract_content or 'Abstract not available')
+    content_parts.append(f"\n**Abstract:** {abstract_text}")
+    
+    # Add keywords in a compact row layout without card design
+    if keywords:
+        # Create keyword badges in a row (limit to 2-3 keywords)
+        keyword_badges = []
+        for kw in keywords[:3]:  # Show only 2-3 keywords to save space
+            keyword_badges.append(f"**{kw}**")
         
-        # Show sample instruction
-        st.markdown("""
-        **How to use:**
-        1. Select papers from the sidebar, or
-        2. Ask a question to see relevant papers
-        3. View abstracts, keywords, and figures here
-        4. Click the Google Scholar link to view papers online
-        """)
+        # Join keywords with spaces for compact row layout
+        keyword_row = " ".join(keyword_badges)
+        content_parts.append(f"\n**Keywords:** {keyword_row}")
+    
+    # Add Google Scholar link
+    content_parts.append(f"\n🔗 **[View on Google Scholar]({scholar_url})**")
+    
+    # Combine all content
+    card_content = "\n".join(content_parts)
+    
+    # Create the paper card using clean UI components
+    st.markdown(create_clean_card(
+        title=display_title,
+        content=card_content,
+        icon="📄",
+        variant=card_variant,
+        padding="medium"
+    ), unsafe_allow_html=True)
 
 
 def display_network_section(selected_papers: List[str]):
     """Display the paper network visualization section"""
-    st.header("🕸️ Paper Network")
+    display_clean_section_header("Paper Network", "Visualize relationships between selected papers")
     
     if selected_papers:
         # Get paper metadata for selected papers
@@ -791,13 +855,25 @@ def display_network_section(selected_papers: List[str]):
         else:
             st.warning("No valid paper metadata found")
     else:
-        st.info("📋 Select papers from the sidebar to visualize their network relationships")
+        display_clean_empty_state(
+            icon="🕸️",
+            title="No Papers Selected",
+            description="Select papers from the sidebar to visualize their network relationships.",
+            action_text="Select Papers",
+            action_func=None
+        )
 
 
 def display_scholar_section():
     """Display the Google Scholar scraper section"""
-    st.header("🌐 Scholar Abstract Scraper")
-    st.info("Enter a paper title or query to fetch the abstract using the scholarly package (Google Scholar API wrapper).\n\n⚠️ This is for research/prototyping. For production, consider SerpAPI.")
+    display_clean_section_header("Scholar Abstract Scraper", "Fetch abstracts from Google Scholar")
+    
+    st.markdown(create_clean_card(
+        title="Important Note",
+        content="This is for research/prototyping. For production, consider SerpAPI.",
+        icon="⚠️",
+        variant="warning"
+    ), unsafe_allow_html=True)
     
     # Year selection
     import datetime
@@ -936,11 +1012,12 @@ def main():
     if 'system_messages' not in st.session_state:
         st.session_state.system_messages = []
     
-    # Header
-    st.markdown('<h1 class="main-header">🔬 Paper Search & QA System</h1>', unsafe_allow_html=True)
+    # Apply clean theme and styling
+    apply_clean_theme()
+    apply_clean_tab_style()
     
-    # Apply theme-based CSS
-    apply_theme_css(st.session_state.dark_theme)
+    # Clean header with logo in left corner
+    display_logo_header()
     
     # Load initial data
     load_initial_data()
@@ -957,16 +1034,30 @@ def main():
     # Main content area with tabs - conditionally create tabs based on LLM availability
     if st.session_state.llm is not None:
         # LLM is available - show all tabs including Paper Network
-        tab1, tab2, tab3, tab4 = st.tabs(["💬 Ask Question", "🖼️ Paper Preview", "🕸️ Paper Network", "🌐 Scholar Abstract Scraper"])
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "💬 Ask Question", 
+            "🖼️ Paper Preview", 
+            "🕸️ Paper Network", 
+            "🌐 Scholar Abstract Scraper"
+        ])
     else:
         # LLM is not available - hide Paper Network tab
-        tab1, tab2, tab4 = st.tabs(["💬 Ask Question", "🖼️ Paper Preview", "🌐 Scholar Abstract Scraper"])
+        tab1, tab2, tab4 = st.tabs([
+            "💬 Ask Question", 
+            "🖼️ Paper Preview", 
+            "🌐 Scholar Abstract Scraper"
+        ])
     
     with tab1:
         # Left column: Question input and optimization
-        col_ask, col_suggest = st.columns([1, 1.5])
+        col_ask, col_suggest = st.columns([6, 4])
         with col_ask:
-            st.markdown(create_glass_card("💬 Ask Questions"), unsafe_allow_html=True)
+            st.markdown(create_clean_card(
+                title="Ask Questions",
+                content="Use AI to ask questions about your research papers and get intelligent answers.",
+                icon="🤖",
+                variant="default"
+            ), unsafe_allow_html=True)
             
             # Toggles row
             col_gap, col_summary = st.columns([1, 1])
@@ -994,18 +1085,28 @@ def main():
                 # Follow-up reading section with max height
                 scholar_search_and_display()
         
-        # Full-width answer section below both columns
-        st.markdown("---")
+  
         
         # Display answer from session state (if exists)
         if st.session_state.get('qa_answer'):
             if gap_toggle:
-                st.markdown("**LLM-Identified Research Gaps:**")
+                st.markdown(create_clean_card(
+                    title="Research Gaps Identified",
+                    content=st.session_state['qa_answer'],
+                    icon="🔍",
+                    variant="warning"
+                ), unsafe_allow_html=True)
                 # Show summarize indicator if enabled
                 if st.session_state.get('summarize_answers', False):
                     st.caption("📝 **Summarized to 3-5 sentences**")
             else:
-                st.markdown(create_glass_card("📝 Answer"), unsafe_allow_html=True)
+                st.markdown(create_clean_card(
+                    title="AI-Generated Answer",
+                    content=st.session_state['qa_answer'],
+                    icon="🤖",
+                    variant="default"
+                ), unsafe_allow_html=True)
+                
                 if st.session_state.llm:
                     st.caption(f"Generated using: {llm_model}")
                 else:
@@ -1014,15 +1115,16 @@ def main():
                 # Show summarize indicator if enabled
                 if st.session_state.get('summarize_answers', False):
                     st.caption("📝 **Summarized to 3-5 sentences**")
-            st.markdown(
-                create_content_card(st.session_state['qa_answer'], "margin: 0.25rem 0 0.5rem 0; padding: 0.5rem 0.75rem; background: rgba(0,0,0,0.1);"),
-                unsafe_allow_html=True
-            )
             
             # Follow-up question section
-            st.markdown("---")
-            st.markdown(create_glass_card("🤔 Follow-up Question"), unsafe_allow_html=True)
-            st.caption("Ask a follow-up question based on the previous answer. You can select previous follow-up answers as additional context.")
+            st.markdown(create_clean_divider(), unsafe_allow_html=True)
+            st.markdown(create_clean_card(
+                title="Follow-up Question",
+                content="Ask a follow-up question based on the previous answer. You can select previous follow-up answers as additional context.",
+                icon="💭",
+                variant="info"
+            ), unsafe_allow_html=True)
+
             
             # Display previous follow-up answers as selectable context cards
             if st.session_state.get('follow_up_history'):
@@ -1154,8 +1256,13 @@ def main():
             
             # Display current follow-up answer if exists
             if st.session_state.get('follow_up_answer'):
-                st.markdown("---")
-                st.markdown(create_glass_card("📝 Latest Follow-up Answer"), unsafe_allow_html=True)
+                st.markdown(create_clean_divider(), unsafe_allow_html=True)
+                st.markdown(create_clean_card(
+                    title="Latest Follow-up Answer",
+                    content=st.session_state['follow_up_answer'],
+                    icon="💡",
+                    variant="success"
+                ), unsafe_allow_html=True)
                 st.caption(f"Follow-up to: {st.session_state.get('follow_up_question', 'Unknown question')}")
                 
                 # Show summarize indicator if enabled
@@ -1178,8 +1285,13 @@ def main():
                         st.caption("ℹ️ This answer will not be included as context")
             
             # Export Q&A session to markdown
-            st.markdown("---")
-            st.markdown(create_glass_card("📄 Export Q&A Session"), unsafe_allow_html=True)
+            st.markdown(create_clean_divider(), unsafe_allow_html=True)
+            st.markdown(create_clean_card(
+                title="Export Q&A Session",
+                content="Download the complete Q&A session including main question, answer, and all follow-ups as a markdown file.",
+                icon="📥",
+                variant="info"
+            ), unsafe_allow_html=True)
             
             # Generate markdown content
             if st.session_state.get('qa_answer') or st.session_state.get('follow_up_history'):

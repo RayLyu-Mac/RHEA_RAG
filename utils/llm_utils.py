@@ -37,7 +37,7 @@ def get_available_ollama_models() -> List[str]:
             llm_models = []
             for model in models:
                 # Include models that are likely to be LLMs
-                if any(keyword in model.lower() for keyword in ["qwen", "gemma", "llama", "mistral", "codellama", "phi", "vicuna", "alpaca","deepseek"]):
+                if any(keyword in model.lower() for keyword in ["qwen", "gemma", "llama", "mistral", "codellama", "phi", "vicuna", "alpaca","deepseek","gpt"]):
                     llm_models.append(model)
             
             return sorted(llm_models) if llm_models else ["qwen3:14b", "gemma3:4b"]
