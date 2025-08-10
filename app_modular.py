@@ -22,6 +22,9 @@ import streamlit as st
 import os
 import sys
 import datetime
+import html
+from urllib.parse import quote
+import re
 from typing import List, Optional
 
 # Try to import graphviz, but make it optional
@@ -61,11 +64,27 @@ from utils.clean_ui_components import (
     create_clean_content_area, create_clean_navigation, apply_clean_tab_style
 )
 
+# Modern UI (incremental replacement of components)
+from utils.modern_ui_components import apply_modern_tab_style, create_modern_card
+
 # Import paper keywords
 from utils.paper_keywords import get_paper_keywords, get_folder_keywords
 
 # Import logo utilities
 from utils.logo_display import display_logo_header, display_logo_in_sidebar
+
+# Import React components (optional)
+try:
+    from react_header_component import display_react_header, handle_header_message, send_header_update  # type: ignore
+    REACT_HEADER_AVAILABLE = True
+except Exception:
+    REACT_HEADER_AVAILABLE = False
+    def display_react_header():
+        return None
+    def handle_header_message():
+        return None
+    def send_header_update(*args, **kwargs):
+        return None
 
 # Page configuration
 st.set_page_config(
@@ -93,12 +112,23 @@ def initialize_session_state():
         'suggested_followup': [], # Added for suggested follow-up reading
         'follow_up_answer': None,  # Added for follow-up question answers
         'follow_up_question': None,  # Added for follow-up questions
+        'latest_follow_up_question': None,  # Store latest follow-up question (separate from widget key)
         'current_selected_papers': [],  # Track currently selected papers for debug display
+        'suggestion_active_papers': [],  # Track active papers for follow-up suggestion context
         'summarize_answers': False,  # Toggle for summarizing answers to 3-5 sentences
+        'design_outline': False,  # Toggle for adding experimental design outline to prompts
         'follow_up_history': [],  # Store all follow-up Q&A pairs
         'selected_context_answers': [],  # Track which follow-up answers are selected as context
         'current_answer_as_context': False,  # Toggle for using current answer as context
-        'original_question': ""  # Store original question for export
+        'original_question': "",  # Store original question for export
+        'followup_year_limit': 'All',  # Year filter for follow-up suggestions
+        'answer_generation_time': None,  # Store time taken to generate answer
+        # React dashboard integration
+        'search_query': "",
+        'search_options': {},
+        'selected_paper': None,
+        'dashboard_data': None,
+        'dashboard_update': None
     }
     
     for key, default_value in defaults.items():
@@ -207,6 +237,11 @@ def display_sidebar() -> tuple:
                     selected_papers = display_paper_selection(st.session_state.paper_list, folder_order, folder_icons)
                     # Store selected papers in session state for debug display
                     st.session_state.current_selected_papers = selected_papers
+                    # Initialize suggestion_active_papers to current selection if empty or if selection changed
+                    current_active = set(st.session_state.get('suggestion_active_papers', []))
+                    current_selected = set(selected_papers)
+                    if not current_active or current_active != current_selected:
+                        st.session_state['suggestion_active_papers'] = list(selected_papers)
                 else:
                     st.error("❌ No papers in session state")
                     st.caption("This means papers were loaded but not stored properly in session state")
@@ -422,6 +457,677 @@ def display_sidebar() -> tuple:
     return selected_papers, llm_model, search_type, num_results
 
 
+def display_controls_main() -> tuple:
+    """Render minimalist controls in the main area (no sidebar) and return selections."""
+    selected_papers: List[str] = []
+    llm_model = st.session_state.available_models[0] if st.session_state.available_models else "qwen3:14b"
+    search_type = "both"
+    num_results = 5
+
+    # Top controls row
+    col_a, col_b, col_c, col_d = st.columns([2, 2, 1, 1])
+    with col_a:
+        st.markdown("**LLM Model**")
+        llm_model = st.selectbox(
+            "",
+            st.session_state.available_models,
+            key="main_llm_model",
+            label_visibility="collapsed",
+            help="Available Ollama models on your system"
+        )
+    with col_b:
+        st.markdown("**Search Type**")
+        search_type = st.selectbox(
+            "",
+            ["both", "parent", "child"],
+            format_func=lambda x: {"both": "Both (Abstract + Full)", "parent": "Full Text + Figures", "child": "Abstract Only"}[x],
+            key="main_search_type",
+            label_visibility="collapsed"
+        )
+    with col_c:
+        st.markdown("**Results**")
+        num_results = st.slider("", 1, 10, 5, key="main_num_results", label_visibility="collapsed")
+    with col_d:
+        st.markdown("**Actions**")
+        if st.button("🔄 Refresh Models", key="main_refresh_models"):
+            st.session_state.available_models = get_available_ollama_models()
+            st.rerun()
+
+    # Load LLM if needed
+    if llm_model != st.session_state.get('current_model'):
+        with st.spinner(f"Loading {llm_model}..."):
+            st.session_state.llm = load_llm(llm_model)
+            st.session_state.current_model = llm_model
+
+    # Paper selection
+    with st.expander("📚 Paper Selection", expanded=True):
+        if st.session_state.paper_list:
+            folder_order, folder_icons = get_folder_config()
+            selected_papers = display_paper_selection(st.session_state.paper_list, folder_order, folder_icons)
+            st.session_state.current_selected_papers = selected_papers
+            st.caption(f"Selected: {len(selected_papers)}")
+            if not st.session_state.get('suggestion_active_papers'):
+                st.session_state['suggestion_active_papers'] = list(selected_papers)
+        else:
+            st.warning("No papers loaded")
+            selected_papers = []
+            st.session_state.current_selected_papers = []
+
+    # System status
+    with st.expander("📊 System Status", expanded=False):
+        if st.session_state.paper_list:
+            st.success("✅ Papers loaded from vectorization tracker")
+        if st.session_state.vectorstore:
+            st.success("✅ Vector store loaded")
+            if st.session_state.tracker_df is not None:
+                stats = get_paper_stats(st.session_state.paper_list)
+                vectorized_count = len(st.session_state.tracker_df[st.session_state.tracker_df['vectorized'] == True])
+                st.caption(f"Papers: {stats['total_papers']} | Vectorized: {vectorized_count} | Figures: {stats['total_figures']}")
+        else:
+            st.error("❌ Failed to load vector store")
+
+    return selected_papers, llm_model, search_type, num_results
+
+
+def display_ask_combined_card(llm_model: str, selected_papers: List[str], search_type: str, num_results: int):
+    """Ask UI that is full-width initially; after optimization, show 2-column layout."""
+    has_optimized = bool(st.session_state.get('optimized_question'))
+
+    # Full-width form before optimization
+    if not has_optimized:
+            # Live follow-up toggle + year limit (outside form for instant rerun)
+            col_sf1, col_sf2 = st.columns([1, 1])
+            with col_sf1:
+                follow_live = st.toggle(
+                    "Suggest Follow-up",
+                    value=st.session_state.get("followup_toggle", False),
+                    key="followup_toggle_live",
+                    help="Show Google Scholar suggestions next to the answer"
+                )
+                st.session_state["followup_toggle"] = follow_live
+            with col_sf2:
+                if follow_live:
+                    current_year = datetime.datetime.now().year
+                    years = ["All"] + [str(y) for y in range(current_year, 1999, -1)]
+                    st.session_state['followup_year_limit'] = st.selectbox(
+                        "Year limit",
+                        years,
+                        index=0 if st.session_state.get('followup_year_limit', 'All') == 'All' else years.index(st.session_state['followup_year_limit']),
+                        key="followup_year_limit_select_live",
+                    )
+
+            # Show selected papers as text buttons (outside form)
+            current = list(st.session_state.get('current_selected_papers', []))
+            active = set(st.session_state.get('suggestion_active_papers', []))
+            
+            # Initialize suggestion_active_papers to current selection if empty
+            if not active and current:
+                active = set(current)
+                st.session_state['suggestion_active_papers'] = list(active)
+            
+            if current:
+                st.markdown("**📚 Selected Papers:**")
+                # Display as text buttons in a row
+                cols = st.columns(len(current))
+                for i, fname in enumerate(current):
+                    with cols[i]:
+                        checked = fname in active
+                        button_text = fname.replace('_', ' ').replace('.pdf', '')
+                        if st.button(
+                            button_text, 
+                            key=f"paper_btn_{fname}", 
+                            help=f"Toggle {fname} for suggestions",
+                            type="primary" if checked else "secondary",
+                            use_container_width=True
+                        ):
+                            if checked:
+                                active.discard(fname)
+                            else:
+                                active.add(fname)
+                            st.session_state['suggestion_active_papers'] = list(active)
+                            st.rerun()
+
+            with st.form("ask_combined_form_full", clear_on_submit=False):
+                # Toggles row (gaps, summarize, design outline inside form)
+                col_gap, col_summary, col_design = st.columns([1, 1, 1])
+                with col_gap:
+                    try:
+                        _gap_val = st.toggle(
+                            "Identify Research Gaps",
+                            value=st.session_state.get("gap_toggle", False),
+                            key="ask_gap_toggle",
+                            help="LLM required for research gap analysis",
+                            disabled=st.session_state.llm is None,
+                        )
+                    except Exception:
+                        _gap_val = st.checkbox(
+                            "Identify Research Gaps",
+                            value=st.session_state.get("gap_toggle", False),
+                            key="ask_gap_toggle_cb",
+                            help="LLM required for research gap analysis",
+                        )
+                    st.session_state["gap_toggle"] = _gap_val
+                with col_summary:
+                    try:
+                        _sum_val = st.toggle(
+                            "Summarize Answers",
+                            value=st.session_state.get("summarize_answers", False),
+                            key="ask_summarize_toggle",
+                            help="Summarize answers to 3-5 sentences",
+                        )
+                    except Exception:
+                        _sum_val = st.checkbox(
+                            "Summarize Answers",
+                            value=st.session_state.get("summarize_answers", False),
+                            key="ask_summarize_toggle_cb",
+                            help="Summarize answers to 3-5 sentences",
+                        )
+                    st.session_state["summarize_answers"] = _sum_val
+                with col_design:
+                    try:
+                        _design_val = st.toggle(
+                            "Design Outline",
+                            value=st.session_state.get("design_outline", False),
+                            key="ask_design_outline_toggle",
+                            help="Add a detailed experimental outline to the answer",
+                        )
+                    except Exception:
+                        _design_val = st.checkbox(
+                            "Design Outline",
+                            value=st.session_state.get("design_outline", False),
+                            key="ask_design_outline_toggle_cb",
+                            help="Add a detailed experimental outline to the answer",
+                        )
+                    st.session_state["design_outline"] = _design_val
+
+                # Full-width input
+                question = st.text_area(
+                    label="Your Question",
+                    value=st.session_state.get("original_question", ""),
+                    placeholder="Ask about precipitation strengthening, microstructure, mechanical properties, etc.",
+                    height=130,
+                    key="combined_question_area",
+                    label_visibility="visible",
+                )
+
+                col_ask, col_opt = st.columns([3, 1])
+                with col_ask:
+                    ask_pressed = st.form_submit_button("🔍 Ask Question", type="primary", use_container_width=True)
+                with col_opt:
+                    optimize_pressed = st.form_submit_button("🧠 Optimize", use_container_width=True, disabled=st.session_state.llm is None)
+
+            # Get question from session state for logic outside form
+            question = st.session_state.get("combined_question_area", "")
+            
+            if optimize_pressed and question.strip() and st.session_state.llm:
+                with st.spinner("Optimizing question..."):
+                    try:
+                        # Preserve the user's original input so the text area keeps its content after rerun
+                        st.session_state['original_question'] = question
+                        optimized_q, keywords = optimize_question(st.session_state.llm, question)
+                        st.session_state.optimized_question = optimized_q
+                        st.session_state.suggested_keywords = keywords
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Optimization failed: {e}")
+
+            if ask_pressed:
+                if question.strip():
+                    st.session_state['original_question'] = question
+                    use_gap = st.session_state.get('gap_toggle', False)
+                    if use_gap:
+                        if st.session_state.llm is None:
+                            st.error("LLM is required for research gap analysis. Please load an LLM model first.")
+                        else:
+                            abstracts = []
+                            for paper in st.session_state.paper_list:
+                                if paper['file_name'] in selected_papers:
+                                    abstract = paper.get('abstract', None)
+                                    if not abstract:
+                                        abstract, _ = get_paper_abstract_and_keywords(st.session_state.vectorstore, paper['file_name'])
+                                    if abstract:
+                                        abstracts.append(abstract)
+                            if abstracts and st.session_state.llm:
+                                gap_prompt = get_research_gap_prompt(abstracts, st.session_state.get('summarize_answers', False))
+                                # Append design outline instruction if requested
+                                if st.session_state.get('design_outline'):
+                                    gap_prompt += "\n\nAdditionally, generate detailed experimental outline, with specific experiment procedure and outline the challenges and expected result."
+                                start_time = datetime.datetime.now()
+                                with st.spinner("LLM is analyzing research gaps..."):
+                                    try:
+                                        gap_response = st.session_state.llm.invoke(gap_prompt)
+                                        end_time = datetime.datetime.now()
+                                        st.session_state['qa_answer'] = gap_response
+                                        st.session_state['answer_generation_time'] = (end_time - start_time).total_seconds()
+                                    except Exception as e:
+                                        st.session_state['qa_answer'] = f"Error: {e}"
+                                        st.session_state['answer_generation_time'] = None
+                            else:
+                                st.session_state['qa_answer'] = "No abstracts found or LLM not loaded."
+                                st.session_state['answer_generation_time'] = None
+                    else:
+                        handle_question_submission(question, llm_model, selected_papers, search_type, num_results)
+                    st.rerun()
+                else:
+                    st.warning("Please enter a question")
+
+    # Split view after optimization
+    else:
+        col_left, col_right = st.columns([2, 1])
+        with col_left:
+            # Live follow-up toggle + year limit (outside form for instant rerun)
+            col_sf1, col_sf2 = st.columns([1, 1])
+            with col_sf1:
+                follow_live = st.toggle(
+                    "Suggest Follow-up",
+                    value=st.session_state.get("followup_toggle", False),
+                    key="followup_toggle_live_split",
+                    help="Show Google Scholar suggestions next to the answer"
+                )
+                st.session_state["followup_toggle"] = follow_live
+            with col_sf2:
+                if follow_live:
+                    current_year = datetime.datetime.now().year
+                    years = ["All"] + [str(y) for y in range(current_year, 1999, -1)]
+                    st.session_state['followup_year_limit'] = st.selectbox(
+                        "Year limit",
+                        years,
+                        index=0 if st.session_state.get('followup_year_limit', 'All') == 'All' else years.index(st.session_state['followup_year_limit']),
+                        key="followup_year_limit_select_live_split",
+                    )
+
+            # Show selected papers as text buttons (outside form)
+            current = list(st.session_state.get('current_selected_papers', []))
+            active = set(st.session_state.get('suggestion_active_papers', []))
+            
+            # Initialize suggestion_active_papers to current selection if empty
+            if not active and current:
+                active = set(current)
+                st.session_state['suggestion_active_papers'] = list(active)
+            
+            if current:
+                st.markdown("**📚 Selected Papers:**")
+                # Display as text buttons in a row
+                cols = st.columns(len(current))
+                for i, fname in enumerate(current):
+                    with cols[i]:
+                        checked = fname in active
+                        button_text = fname.replace('_', ' ').replace('.pdf', '')
+                        if st.button(
+                            button_text, 
+                            key=f"paper_btn_split_{fname}", 
+                            help=f"Toggle {fname} for suggestions",
+                            type="primary" if checked else "secondary",
+                            use_container_width=True
+                        ):
+                            if checked:
+                                active.discard(fname)
+                            else:
+                                active.add(fname)
+                            st.session_state['suggestion_active_papers'] = list(active)
+                            st.rerun()
+
+            with st.form("ask_combined_form_split", clear_on_submit=False):
+                col_gap, col_summary, col_design = st.columns([1, 1, 1])
+                with col_gap:
+                    try:
+                        _gap_val = st.toggle(
+                            "Identify Research Gaps",
+                            value=st.session_state.get("gap_toggle", False),
+                            key="ask_gap_toggle",
+                            help="LLM required for research gap analysis",
+                            disabled=st.session_state.llm is None,
+                        )
+                    except Exception:
+                        _gap_val = st.checkbox(
+                            "Identify Research Gaps",
+                            value=st.session_state.get("gap_toggle", False),
+                            key="ask_gap_toggle_cb",
+                            help="LLM required for research gap analysis",
+                        )
+                    st.session_state["gap_toggle"] = _gap_val
+                with col_summary:
+                    try:
+                        _sum_val = st.toggle(
+                            "Summarize Answers",
+                            value=st.session_state.get("summarize_answers", False),
+                            key="ask_summarize_toggle",
+                            help="Summarize answers to 3-5 sentences",
+                        )
+                    except Exception:
+                        _sum_val = st.checkbox(
+                            "Summarize Answers",
+                            value=st.session_state.get("summarize_answers", False),
+                            key="ask_summarize_toggle_cb",
+                            help="Summarize answers to 3-5 sentences",
+                        )
+                    st.session_state["summarize_answers"] = _sum_val
+                with col_design:
+                    try:
+                        _design_val = st.toggle(
+                            "Design Outline",
+                            value=st.session_state.get("design_outline", False),
+                            key="ask_design_outline_toggle",
+                            help="Add a detailed experimental outline to the answer",
+                        )
+                    except Exception:
+                        _design_val = st.checkbox(
+                            "Design Outline",
+                            value=st.session_state.get("design_outline", False),
+                            key="ask_design_outline_toggle_cb",
+                            help="Add a detailed experimental outline to the answer",
+                        )
+                    st.session_state["design_outline"] = _design_val
+
+                question = st.text_area(
+                    label="Your Question",
+                    value=st.session_state.get("original_question", ""),
+                    placeholder="Ask about precipitation strengthening, microstructure, mechanical properties, etc.",
+                    height=120,
+                    key="combined_question_area",
+                    label_visibility="visible",
+                )
+
+                col_ask, col_opt = st.columns([3, 1])
+                with col_ask:
+                    ask_pressed = st.form_submit_button("🔍 Ask Question", type="primary", use_container_width=True)
+                with col_opt:
+                    optimize_pressed = st.form_submit_button("🧠 Optimize", use_container_width=True, disabled=st.session_state.llm is None)
+
+            # Get question from session state for logic outside form
+            question = st.session_state.get("combined_question_area", "")
+            
+            if optimize_pressed and question.strip() and st.session_state.llm:
+                with st.spinner("Optimizing question..."):
+                    try:
+                        # Keep original input intact
+                        st.session_state['original_question'] = question
+                        st.caption(f"🔍 Debug: Starting optimization for: '{question}'")
+                        
+                        optimized_q, keywords = optimize_question(st.session_state.llm, question)
+                        
+                        # Debug: Show what we got from the LLM
+                        st.caption(f"🔍 Debug: LLM returned - Question: '{optimized_q}', Keywords: {keywords}")
+                        st.caption(f"🔍 Debug: Question type: {type(optimized_q)}, Length: {len(str(optimized_q)) if optimized_q else 0}")
+                        
+                        # Check if optimization actually improved the question or returned empty
+                        if not optimized_q or optimized_q.strip() == "" or optimized_q == question:
+                            st.warning("LLM returned empty or same question. Applying manual optimization...")
+                            # Manual optimization as fallback - generate based on user's question
+                            if "atomic size" in question.lower() or "size difference" in question.lower():
+                                manual_optimized = f"Investigate the relationship between atomic size differences and microstructural evolution in refractory high-entropy alloys, specifically examining: (1) lattice distortion effects on dislocation behavior, (2) phase stability changes due to atomic size mismatch, and (3) mechanical property correlations with microstructural modifications"
+                                manual_keywords = ["atomic size difference", "lattice distortion", "dislocation behavior", "phase stability", "microstructural evolution"]
+                            elif "temperature" in question.lower() or "heat" in question.lower():
+                                manual_optimized = f"Investigate the relationship between thermal processing parameters and microstructural evolution in refractory high-entropy alloys, specifically examining: (1) temperature-dependent phase transformations, (2) grain growth kinetics, and (3) mechanical property correlations with thermal history"
+                                manual_keywords = ["thermal processing", "phase transformation", "grain growth", "mechanical properties", "temperature effects"]
+                            elif "strength" in question.lower() or "mechanical" in question.lower():
+                                manual_optimized = f"Analyze the strengthening mechanisms and mechanical properties of refractory high-entropy alloys, focusing on: (1) dislocation density evolution, (2) precipitation behavior, and (3) grain boundary effects on yield strength and ductility"
+                                manual_keywords = ["strengthening mechanisms", "dislocation density", "precipitation", "grain boundaries", "mechanical properties"]
+                            elif "microstructure" in question.lower() or "structure" in question.lower():
+                                manual_optimized = f"Examine the microstructural evolution and phase stability in refractory high-entropy alloys, investigating: (1) phase formation mechanisms, (2) grain size distribution, and (3) interface characteristics and their influence on properties"
+                                manual_keywords = ["microstructure", "phase stability", "grain size", "interfaces", "phase formation"]
+                            else:
+                                # Generic but relevant optimization
+                                manual_optimized = f"Investigate the fundamental relationships between composition, microstructure, and properties in refractory high-entropy alloys, specifically examining: (1) atomic size effects, (2) phase stability, and (3) property correlations"
+                                manual_keywords = ["composition", "microstructure", "atomic size", "phase stability", "property correlations"]
+                            
+                            st.session_state.optimized_question = manual_optimized
+                            st.session_state.suggested_keywords = manual_keywords
+                            st.success("Manual optimization applied!")
+                        else:
+                            st.session_state.optimized_question = optimized_q
+                            st.session_state.suggested_keywords = keywords
+                            st.success("Question optimized successfully!")
+                        
+                        st.caption(f"🔍 Debug: Final optimization result - Question: '{st.session_state.optimized_question}', Keywords: {st.session_state.suggested_keywords}")
+                    except Exception as e:
+                        st.error(f"Optimization failed: {e}")
+                        st.caption(f"🔍 Debug: Exception details: {str(e)}")
+
+            if ask_pressed:
+                if question.strip():
+                    st.session_state['original_question'] = question
+                    
+                    # Check if we have an optimized question and use it instead of the original
+                    question_to_use = question
+                    if st.session_state.get("optimized_question") and st.session_state.get("optimized_question").strip():
+                        question_to_use = st.session_state["optimized_question"]
+                        st.info(f"Using optimized question: {question_to_use}")
+                    else:
+                        st.info(f"Using original question: {question_to_use}")
+                    
+                    # Debug: Show what question is being used
+                    st.caption(f"🔍 Debug: Question to use: '{question_to_use}'")
+                    st.caption(f"🔍 Debug: Original question: '{question}'")
+                    st.caption(f"🔍 Debug: Optimized question exists: {bool(st.session_state.get('optimized_question'))}")
+                    if st.session_state.get('optimized_question'):
+                        st.caption(f"🔍 Debug: Optimized question value: '{st.session_state.get('optimized_question')}'")
+                    
+                    use_gap = st.session_state.get('gap_toggle', False)
+                    if use_gap:
+                        if st.session_state.llm is None:
+                            st.error("LLM is required for research gap analysis. Please load an LLM model first.")
+                        else:
+                            abstracts = []
+                            for paper in st.session_state.paper_list:
+                                if paper['file_name'] in selected_papers:
+                                    abstract = paper.get('abstract', None)
+                                    if not abstract:
+                                        abstract, _ = get_paper_abstract_and_keywords(st.session_state.vectorstore, paper['file_name'])
+                                    if abstract:
+                                        abstracts.append(abstract)
+                            if abstracts and st.session_state.llm:
+                                gap_prompt = get_research_gap_prompt(abstracts, st.session_state.get('summarize_answers', False))
+                                if st.session_state.get('design_outline'):
+                                    gap_prompt += "\n\nAdditionally, generate detailed experimental outline, with specific experiment procedure and outline the challenges and expected result."
+                                start_time = datetime.datetime.now()
+                                with st.spinner("LLM is analyzing research gaps..."):
+                                    try:
+                                        gap_response = st.session_state.llm.invoke(gap_prompt)
+                                        end_time = datetime.datetime.now()
+                                        st.session_state['qa_answer'] = gap_response
+                                        st.session_state['answer_generation_time'] = (end_time - start_time).total_seconds()
+                                    except Exception as e:
+                                        st.session_state['qa_answer'] = f"Error: {e}"
+                                        st.session_state['answer_generation_time'] = None
+                            else:
+                                st.session_state['qa_answer'] = "No abstracts found or LLM not loaded."
+                                st.session_state['answer_generation_time'] = None
+                    else:
+                        handle_question_submission(question_to_use, llm_model, selected_papers, search_type, num_results)
+                    st.rerun()
+                else:
+                    st.warning("Please enter a question")
+
+        with col_right:
+            # Display optimized question with proper HTML rendering
+            optimized_content = st.session_state.optimized_question
+            if optimized_content:
+                # Clean any HTML tags that might be in the content
+                import re
+                clean_content = re.sub(r'<[^>]+>', '', optimized_content)
+                
+                st.markdown(create_clean_card(
+                    title="Optimized Question",
+                    content=clean_content,
+                    icon="✨",
+                    variant="success"
+                ), unsafe_allow_html=True)
+            # Ask using optimized question
+            ask_opt_btn = st.button("🔍 Ask Optimized Question", use_container_width=True, key="ask_optimized_btn")
+            if ask_opt_btn:
+                opt_q = st.session_state.get('optimized_question', '').strip()
+                if not opt_q:
+                    st.warning("No optimized question available.")
+                else:
+                    # Store the optimized question as the question to use
+                    st.session_state['original_question'] = opt_q
+                    st.info(f"Using optimized question: {opt_q}")
+                    
+                    use_gap = st.session_state.get('gap_toggle', False)
+                    if use_gap:
+                        if st.session_state.llm is None:
+                            st.error("LLM is required for research gap analysis. Please load an LLM model first.")
+                        else:
+                            abstracts = []
+                            for paper in st.session_state.paper_list:
+                                if paper['file_name'] in selected_papers:
+                                    abstract = paper.get('abstract', None)
+                                    if not abstract:
+                                        abstract, _ = get_paper_abstract_and_keywords(st.session_state.vectorstore, paper['file_name'])
+                                    if abstract:
+                                        abstracts.append(abstract)
+                            if abstracts and st.session_state.llm:
+                                gap_prompt = get_research_gap_prompt(abstracts, st.session_state.get('summarize_answers', False))
+                                with st.spinner("LLM is analyzing research gaps..."):
+                                    try:
+                                        gap_response = st.session_state.llm.invoke(gap_prompt)
+                                        st.session_state['qa_answer'] = gap_response
+                                    except Exception as e:
+                                        st.session_state['qa_answer'] = f"Error: {e}"
+                            else:
+                                st.session_state['qa_answer'] = "No abstracts found or LLM not loaded."
+                    else:
+                        handle_question_submission(opt_q, llm_model, selected_papers, search_type, num_results)
+                    st.rerun()
+
+
+def handle_dashboard_message():
+    """
+    Handle messages from the React dashboard component.
+    This mirrors the logic used in the React-enabled app.
+    """
+    if 'dashboard_action' in st.session_state:
+        action = st.session_state.dashboard_action
+        if action == 'search':
+            query = st.session_state.get('dashboard_query', '')
+            options = st.session_state.get('dashboard_options', {})
+            st.session_state.search_query = query
+            st.session_state.search_options = options
+            st.rerun()
+        elif action == 'optimize_question':
+            query = st.session_state.get('dashboard_query', '')
+            if query and st.session_state.llm:
+                optimized_q, keywords = optimize_question(st.session_state.llm, query)
+                st.session_state.optimized_question = optimized_q
+                st.session_state.suggested_keywords = keywords
+                send_dashboard_update('set_optimized_question', optimized_q)
+            st.rerun()
+        elif action == 'select_paper':
+            paper = st.session_state.get('dashboard_paper', {})
+            st.session_state.selected_paper = paper
+            st.rerun()
+        del st.session_state.dashboard_action
+
+
+def send_dashboard_data(data_type: str, data: dict):
+    """Send data to the React dashboard component via session state."""
+    st.session_state.dashboard_data = {'type': data_type, 'data': data}
+
+
+def send_dashboard_update(action: str, data):
+    """Send updates to the React dashboard component via session state."""
+    st.session_state.dashboard_update = {'action': action, 'data': data}
+
+
+def process_search_query(query: str, selected_papers: List[str], llm_model: str, search_type: str, num_results: int):
+    """Process search query from React dashboard."""
+    if not query.strip():
+        return None
+    options = st.session_state.get('search_options', {})
+    identify_gaps = options.get('identify_gaps', False)
+    summarize_answers = options.get('summarize_answers', False)
+    st.session_state.summarize_answers = summarize_answers
+
+    if st.session_state.vectorstore:
+        with st.spinner("Searching papers..."):
+            if identify_gaps:
+                abstracts = []
+                for paper in st.session_state.paper_list:
+                    if paper['file_name'] in selected_papers:
+                        abstract = paper.get('abstract', None)
+                        if not abstract:
+                            abstract, _ = get_paper_abstract_and_keywords(st.session_state.vectorstore, paper['file_name'])
+                        if abstract:
+                            abstracts.append(abstract)
+                if abstracts and st.session_state.llm:
+                    gap_prompt = get_research_gap_prompt(abstracts, summarize_answers)
+                    try:
+                        answer = st.session_state.llm.invoke(gap_prompt)
+                        return {'query': query, 'answer': answer, 'papers': [], 'total_results': 0, 'type': 'research_gaps'}
+                    except Exception as e:
+                        return {'query': query, 'answer': f"Error analyzing research gaps: {e}", 'papers': [], 'total_results': 0, 'type': 'error'}
+            else:
+                search_results, success = search_papers(
+                    st.session_state.vectorstore,
+                    query,
+                    selected_papers if selected_papers else None,
+                    search_type,
+                    num_results
+                )
+                if success and search_results:
+                    answer = generate_answer(st.session_state.llm, query, search_results, summarize_answers)
+                    papers_data = []
+                    for doc in search_results:
+                        paper_info = {
+                            'title': doc.metadata.get('title', doc.metadata.get('file_name', 'Unknown')),
+                            'authors': doc.metadata.get('authors', ['Unknown']),
+                            'abstract': doc.page_content[:300] + '...' if len(doc.page_content) > 300 else doc.page_content,
+                            'year': doc.metadata.get('year', 'Unknown'),
+                            'citations': doc.metadata.get('citations', 0),
+                            'venue': doc.metadata.get('venue', 'Unknown'),
+                            'tags': doc.metadata.get('tags', []),
+                            'file_name': doc.metadata.get('file_name', 'Unknown')
+                        }
+                        papers_data.append(paper_info)
+                    return {'query': query, 'answer': answer, 'papers': papers_data, 'total_results': len(search_results), 'type': 'normal_search'}
+    return None
+
+
+def display_dashboard_controls():
+    """Toggles/buttons in the same fashion as the modular UI for the React dashboard flow."""
+    display_clean_section_header("Ask & Options", "Use toggles below to control dashboard behavior")
+    if 'search_options' not in st.session_state or not isinstance(st.session_state.search_options, dict):
+        st.session_state.search_options = {}
+    col_gap, col_summary, col_follow = st.columns([1, 1, 1])
+    with col_gap:
+        identify_gaps_default = bool(st.session_state.search_options.get('identify_gaps', False))
+        identify_gaps_val = st.checkbox(
+            "Identify Research Gaps",
+            value=identify_gaps_default,
+            key="identify_gaps_toggle",
+            disabled=st.session_state.llm is None,
+            help="LLM required for research gap analysis"
+        )
+        st.session_state.search_options['identify_gaps'] = identify_gaps_val
+    with col_summary:
+        summarize_default = bool(st.session_state.get('summarize_answers', False))
+        summarize_val = st.checkbox(
+            "Summarize Answers",
+            value=summarize_default,
+            key="summarize_answers_toggle",
+            help="Summarize answers to 3-5 sentences"
+        )
+        st.session_state.summarize_answers = summarize_val
+        st.session_state.search_options['summarize_answers'] = summarize_val
+    with col_follow:
+        suggest_default = bool(st.session_state.search_options.get('suggest_followup', False))
+        suggest_val = st.checkbox(
+            "Suggest Follow-up Reading",
+            value=suggest_default,
+            key="suggest_followup_toggle",
+            help="Recommend related papers from results"
+        )
+        st.session_state.search_options['suggest_followup'] = suggest_val
+    if st.session_state.get('optimized_question'):
+        st.markdown(create_clean_card(
+            title="Optimized Question",
+            content=st.session_state.optimized_question,
+            icon="✨",
+            variant="success"
+        ), unsafe_allow_html=True)
+
+
 def display_question_section(llm_model: str, selected_papers: List[str], search_type: str, num_results: int, gap_toggle: bool = False):
     """Display the question input and optimization section"""
     # Question input area (no text, just the input)
@@ -487,15 +1193,7 @@ def display_question_section(llm_model: str, selected_papers: List[str], search_
                     st.session_state.suggested_keywords = get_suggested_keywords()
                     st.rerun()
     # Show selected keywords (below both columns)
-    if st.session_state.selected_keywords:
-        st.markdown("**Selected Keywords:**")
-        selected_keywords_text = " • ".join(st.session_state.selected_keywords)
-        st.markdown(create_clean_card(
-            title="Selected Keywords",
-            content=selected_keywords_text,
-            icon="✅",
-            variant="success"
-        ), unsafe_allow_html=True)
+    # Keyword UI removed per request
     # Ask button - always show it, regardless of optimization status
     if st.button("🔍 Ask Question", type="primary", use_container_width=True):
         # Debug information
@@ -562,10 +1260,10 @@ def handle_question_submission(question: str, llm_model: str, selected_papers: L
     
     # Use LLM to extract keywords for Scholar (if available)
     if st.session_state.llm:
-        optimized_q, keywords = optimize_question(st.session_state.llm, question)
+        optimized_q, _ = optimize_question(st.session_state.llm, question)
         st.session_state.optimized_question = optimized_q
-        st.session_state.suggested_keywords = keywords[:4] if keywords else []
 
+    start_time = datetime.datetime.now()
     with st.spinner("Searching papers..."):
         # Search papers
         search_results, success = search_papers(
@@ -579,6 +1277,13 @@ def handle_question_submission(question: str, llm_model: str, selected_papers: L
         if success and search_results:
             # Generate answer (with or without LLM)
             answer = generate_answer(st.session_state.llm, question, search_results, st.session_state.get('summarize_answers', False))
+            # If design outline requested, append instruction to the answer via a follow-up enhancement call when LLM is available
+            if st.session_state.llm and st.session_state.get('design_outline'):
+                try:
+                    design_suffix = "\n\nAdditionally, generate detailed experimental outline, with specific experiment procedure and outline the challenges and expected result."
+                    answer = st.session_state.llm.invoke(answer + design_suffix)
+                except Exception:
+                    pass
         else:
             if selected_papers and len(selected_papers) > 0:
                 answer = "No relevant documents found for your question in the selected papers. Try broadening your selection or rephrasing your question."
@@ -586,8 +1291,10 @@ def handle_question_submission(question: str, llm_model: str, selected_papers: L
                 answer = "No relevant documents found for your question."
             search_results = []
     
-    # Store answer in session state for display_question_section to use
+    end_time = datetime.datetime.now()
+    # Store answer and timing in session state
     st.session_state['qa_answer'] = answer
+    st.session_state['answer_generation_time'] = (end_time - start_time).total_seconds()
     
     # Display sources card
     if search_results:
@@ -640,65 +1347,28 @@ def handle_question_submission(question: str, llm_model: str, selected_papers: L
                     unsafe_allow_html=True
                 )
     
-    # Suggested Follow Up Reading (right column)
-    if search_results:
-        # Only show research papers (not meeting notes)
-        research_papers = [doc for doc in search_results if doc.metadata.get('content_type') != 'meeting_notes']
-        if research_papers:
-            # Build a mapping from file_name to file_path
-            file_map = {p['file_name']: p['file_path'] for p in st.session_state.paper_list}
-            # Use a session variable to store for right column
-            st.session_state.suggested_followup = [
-                {
-                    'file_name': doc.metadata.get('file_name', 'Unknown'),
-                    'file_path': file_map.get(doc.metadata.get('file_name', ''), None),
-                    'title': doc.metadata.get('title', doc.metadata.get('file_name', 'Unknown')),
-                    'abstract': doc.metadata.get('abstract') or (doc.page_content[:300] + '...' if len(doc.page_content) > 300 else doc.page_content)
-                }
-                for doc in research_papers
-            ]
-        else:
-            st.session_state.suggested_followup = []
-    else:
-        st.session_state.suggested_followup = []
+    # Suggested Follow Up Reading setup remains; keyword UI removed above
 
 
 def display_preview_section(selected_papers: List[str]):
-    """Display the paper preview section with card-based UI and folder buttons"""
-    display_clean_section_header("Paper Preview", "Browse and explore research papers")
-    
-    if selected_papers:
-        # Show selected papers in card format
-        st.markdown("### 📚 Selected Papers")
-        for paper_name in selected_papers:
-            paper_info = next((p for p in st.session_state.paper_list if p['file_name'] == paper_name), None)
-            if paper_info:
-                display_paper_card(paper_info, is_selected=True)
-    else:
-        # Display all papers grouped by folders with buttons
+    """Display the paper preview section using exactly two boxes (expanders)."""
+    # Box 1: Browse & Select
+    with st.expander("📚 Browse & Select Papers", expanded=True):
         if st.session_state.paper_list:
-            # Group papers by folder
             folder_order, folder_icons = get_folder_config()
             papers_by_folder = {}
-            
             for paper in st.session_state.paper_list:
                 folder = paper.get('folder', 'Unknown')
-                if folder not in papers_by_folder:
-                    papers_by_folder[folder] = []
-                papers_by_folder[folder].append(paper)
-            
-            # Initialize session state for folder selection
+                papers_by_folder.setdefault(folder, []).append(paper)
+
             if 'selected_folder' not in st.session_state:
                 st.session_state.selected_folder = None
-            
-            
+
             folder_cols = st.columns(len(folder_order))
-            
             for i, folder in enumerate(folder_order):
                 if folder in papers_by_folder:
                     icon = folder_icons.get(folder, '📁')
                     paper_count = len(papers_by_folder[folder])
-                    
                     with folder_cols[i]:
                         if st.button(
                             f"{icon} {folder}\n({paper_count} papers)",
@@ -708,35 +1378,12 @@ def display_preview_section(selected_papers: List[str]):
                         ):
                             st.session_state.selected_folder = folder
                             st.rerun()
-            
-            # Display papers for selected folder
-            if st.session_state.selected_folder and st.session_state.selected_folder in papers_by_folder:
-                st.markdown(f"### 📚 Papers in {st.session_state.selected_folder}")
-                
-                # Create a grid layout for papers (2 columns)
-                papers = papers_by_folder[st.session_state.selected_folder]
-                cols = st.columns(2)
-                
-                for i, paper in enumerate(papers):
-                    with cols[i % 2]:
-                        display_paper_card(paper, is_selected=False)
-            
-            # Show "All Papers" option
-            elif st.session_state.selected_folder is None:
-                st.markdown("### 📚 All Papers")
-                st.info("👆 Select a research area above to view papers")
-                
-                # Show a few sample papers from all folders
-                sample_papers = []
-                for folder in folder_order:
-                    if folder in papers_by_folder:
-                        sample_papers.extend(papers_by_folder[folder][:2])  # Show 2 papers per folder
-                
-                if sample_papers:
-                    cols = st.columns(2)
-                    for i, paper in enumerate(sample_papers[:6]):  # Show max 6 sample papers
-                        with cols[i % 2]:
-                            display_paper_card(paper, is_selected=False)
+
+            # Small selection summary
+            current_selected = st.session_state.get('current_selected_papers', [])
+            st.caption(f"Selected papers: {len(current_selected)}")
+            if st.session_state.selected_folder:
+                st.caption(f"Active folder: {st.session_state.selected_folder}")
         else:
             display_clean_empty_state(
                 icon="📋",
@@ -745,6 +1392,50 @@ def display_preview_section(selected_papers: List[str]):
                 action_text="Check System Status",
                 action_func=None
             )
+
+    # Box 2: Papers grid (card design, two per row)
+    with st.expander("📄 Papers", expanded=True):
+        if not st.session_state.paper_list:
+            st.info("No papers to display.")
+            return
+
+        folder_order, _ = get_folder_config()
+        papers_by_folder = {}
+        for paper in st.session_state.paper_list:
+            folder = paper.get('folder', 'Unknown')
+            papers_by_folder.setdefault(folder, []).append(paper)
+
+        def render_cards(papers: list[dict]):
+            cols = st.columns(2)
+            for i, paper in enumerate(papers):
+                with cols[i % 2]:
+                    display_paper_card(paper, is_selected=False)
+
+        # Selected papers view
+        if selected_papers:
+            st.markdown("**📚 Selected Papers**")
+            selected_infos = [
+                next((p for p in st.session_state.paper_list if p['file_name'] == name), None)
+                for name in selected_papers
+            ]
+            selected_infos = [p for p in selected_infos if p]
+            if selected_infos:
+                render_cards(selected_infos)
+            else:
+                st.info("No details found for selected papers.")
+        # Active folder view
+        elif st.session_state.selected_folder and st.session_state.selected_folder in papers_by_folder:
+            st.markdown(f"**📚 Papers in {st.session_state.selected_folder}**")
+            render_cards(papers_by_folder[st.session_state.selected_folder])
+        # Sample view
+        else:
+            st.info("👆 Select a research area above or choose papers from the sidebar.")
+            sample_papers = []
+            for folder in folder_order:
+                if folder in papers_by_folder:
+                    sample_papers.extend(papers_by_folder[folder][:2])
+            if sample_papers:
+                render_cards(sample_papers[:8])
 
 
 def display_paper_card(paper_info: dict, is_selected: bool = False):
@@ -1012,12 +1703,106 @@ def main():
     if 'system_messages' not in st.session_state:
         st.session_state.system_messages = []
     
-    # Apply clean theme and styling
+    # Apply clean theme and styling (keep existing)
     apply_clean_theme()
     apply_clean_tab_style()
+    # Incrementally apply modern tab style for better visuals
+    apply_modern_tab_style()
     
-    # Clean header with logo in left corner
-    display_logo_header()
+    # Add custom CSS for larger toggles, buttons, and text
+    st.markdown("""
+    <style>
+    /* Larger toggles */
+    .stToggle > label {
+        font-size: 1.3rem !important;
+        font-weight: 600 !important;
+        line-height: 1.4 !important;
+    }
+    
+    /* Larger toggle switch size */
+    .stToggle > div > div {
+        transform: scale(1.2) !important;
+        margin: 0.5rem 0 !important;
+    }
+    
+    /* Larger checkboxes */
+    .stCheckbox > label {
+        font-size: 1.3rem !important;
+        font-weight: 600 !important;
+        line-height: 1.4 !important;
+    }
+    
+    /* Larger checkbox size */
+    .stCheckbox > div > div {
+        transform: scale(1.2) !important;
+        margin: 0.5rem 0 !important;
+    }
+    
+    /* Larger buttons */
+    .stButton > button {
+        font-size: 1.3rem !important;
+        padding: 1rem 2rem !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Larger text areas */
+    .stTextArea > div > div > textarea {
+        font-size: 1.3rem !important;
+        line-height: 1.5 !important;
+    }
+    
+    /* Larger text area labels */
+    .stTextArea > label {
+        font-size: 1.3rem !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Larger select boxes */
+    .stSelectbox > div > div > div {
+        font-size: 1.3rem !important;
+    }
+    
+    /* Larger select box labels */
+    .stSelectbox > label {
+        font-size: 1.3rem !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Larger form submit buttons */
+    .stFormSubmitButton > button {
+        font-size: 1.3rem !important;
+        padding: 1rem 2rem !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Larger markdown text */
+    .stMarkdown > div > div {
+        font-size: 1.3rem !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Larger form labels */
+    .stForm > div > div > div > label {
+        font-size: 1.3rem !important;
+        font-weight: 600 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # React header (optional) and main title
+    display_react_header()
+    handle_header_message()
+    # Left-aligned header with controlled top whitespace (~1/8 viewport) without animations
+    st.markdown(
+        """
+        <div style="margin-top:12.5vh;"></div>
+        <div class="clean-card" style="margin-top:0; margin-bottom:0.75rem; border-left: 3px solid var(--accent-color); padding: var(--spacing-md); text-align:left;">
+            <h1 style="margin:0; font-size:1.6rem; color: var(--text-primary); font-weight:600;">🔬 Material Research RAG System</h1>
+            <p style="margin:0.25rem 0 0 0; color: var(--text-secondary);">Modern paper search and LLM Q&A with streamlined UI</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     
     # Load initial data
     load_initial_data()
@@ -1028,9 +1813,11 @@ def main():
         st.info("💡 Check the sidebar under 'System Status' for detailed error messages and troubleshooting steps.")
         # Don't return - let the app continue so user can see error details in sidebar
     
-    # Display sidebar and get settings
+    # Use sidebar controls and paper selection
     selected_papers, llm_model, search_type, num_results = display_sidebar()
     
+    # Note: Keeping core modular UI intact; React dashboard intentionally not injected to preserve functionality
+
     # Main content area with tabs - conditionally create tabs based on LLM availability
     if st.session_state.llm is not None:
         # LLM is available - show all tabs including Paper Network
@@ -1047,51 +1834,23 @@ def main():
             "🖼️ Paper Preview", 
             "🌐 Scholar Abstract Scraper"
         ])
-    
+
     with tab1:
-        # Left column: Question input and optimization
-        col_ask, col_suggest = st.columns([6, 4])
-        with col_ask:
-            st.markdown(create_clean_card(
-                title="Ask Questions",
-                content="Use AI to ask questions about your research papers and get intelligent answers.",
-                icon="🤖",
-                variant="default"
-            ), unsafe_allow_html=True)
-            
-            # Toggles row
-            col_gap, col_summary = st.columns([1, 1])
-            with col_gap:
-                gap_toggle = st.checkbox("Identify Research Gaps", value=False, key="gap_toggle", disabled=st.session_state.llm is None, help="LLM required for research gap analysis")
-            with col_summary:
-                st.session_state.summarize_answers = st.checkbox("Summarize Answers", value=st.session_state.summarize_answers, key="summarize_toggle", help="Summarize answers to 3-5 sentences")
-            
-            display_question_section(llm_model, selected_papers, search_type, num_results, gap_toggle=gap_toggle)
-        
-        # Right column: Follow-up reading (with max height constraint)
-        with col_suggest:
-            # Create a container with max height constraint
-            with st.container():
-                # At the very top of the right column: toggle, year, and results
-                import datetime
-                current_year = datetime.datetime.now().year
-                years = ["All"] + [str(y) for y in range(current_year, 1999, -1)]
-                col_year, col_toggle = st.columns([1, 1])
-                with col_year:
-                    scholar_year = st.selectbox("Year limit", years, index=0, key="year_limit", label_visibility="visible")
-                with col_toggle:
-                    scholar_toggle = st.checkbox("Suggest follow-up reading", value=False)
-                
-                # Follow-up reading section with max height
-                scholar_search_and_display()
+        display_ask_combined_card(llm_model, selected_papers, search_type, num_results)
         
   
         
         # Display answer from session state (if exists)
         if st.session_state.get('qa_answer'):
-            if gap_toggle:
+            use_gap = st.session_state.get('gap_toggle', False)
+            if use_gap:
+                # Add timing info to the title
+                timing_info = ""
+                if st.session_state.get('answer_generation_time'):
+                    timing_info = f" ⏱️ {st.session_state['answer_generation_time']:.1f}s"
+                
                 st.markdown(create_clean_card(
-                    title="Research Gaps Identified",
+                    title=f"Research Gaps Identified{timing_info}",
                     content=st.session_state['qa_answer'],
                     icon="🔍",
                     variant="warning"
@@ -1100,95 +1859,134 @@ def main():
                 if st.session_state.get('summarize_answers', False):
                     st.caption("📝 **Summarized to 3-5 sentences**")
             else:
-                st.markdown(create_clean_card(
-                    title="AI-Generated Answer",
-                    content=st.session_state['qa_answer'],
-                    icon="🤖",
-                    variant="default"
-                ), unsafe_allow_html=True)
-                
-                if st.session_state.llm:
-                    st.caption(f"Generated using: {llm_model}")
-                else:
-                    st.caption("LLM not available - showing search results summary")
-                
-                # Show summarize indicator if enabled
-                if st.session_state.get('summarize_answers', False):
-                    st.caption("📝 **Summarized to 3-5 sentences**")
-            
-            # Follow-up question section
-            st.markdown(create_clean_divider(), unsafe_allow_html=True)
-            st.markdown(create_clean_card(
-                title="Follow-up Question",
-                content="Ask a follow-up question based on the previous answer. You can select previous follow-up answers as additional context.",
-                icon="💭",
-                variant="info"
-            ), unsafe_allow_html=True)
+                # Answer + optional follow-up suggestions in 7:3 layout
+                if st.session_state.get('followup_toggle', False):
+                    col_ans, col_suggest = st.columns([7, 3])
+                    with col_ans:
+                        # Add timing info to the title
+                        timing_info = ""
+                        if st.session_state.get('answer_generation_time'):
+                            timing_info = f" ⏱️ {st.session_state['answer_generation_time']:.1f}s"
+                        
+                        st.markdown(create_clean_card(
+                            title=f"AI-Generated Answer{timing_info}",
+                            content=st.session_state['qa_answer'],
+                            icon="🤖",
+                            variant="default"
+                        ), unsafe_allow_html=True)
+                    with col_suggest:
+                        # Show suggested follow-up reading results
+                        st.markdown(
+                            "**📖 Suggested Follow-up Reading**"
+                        )
 
+                        # Build query from optimized question or original question
+                        query_for_followup = st.session_state.get('optimized_question') or st.session_state.get('original_question', '')
+                        # Optionally append active paper titles to bias the scholar query
+                        if st.session_state.get('suggestion_active_papers'):
+                            titles = []
+                            for name in st.session_state['suggestion_active_papers']:
+                                titles.append(name.replace('_', ' ').replace('.pdf', ''))
+                            query_for_followup = (query_for_followup + " " + " ".join(titles)).strip()
+                        year_filter = st.session_state.get('followup_year_limit', 'All')
+
+                        # Try fetching up to 3 suggestions via scholarly directly
+                        suggestions: list[dict] = []
+                        try:
+                            from scholarly import scholarly  # type: ignore
+                            search_iter = scholarly.search_pubs(query_for_followup)
+                            for result in search_iter:
+                                bib = result.get('bib', {})
+                                year = str(bib.get('pub_year', bib.get('year', '')))
+                                if year_filter == 'All' or year == year_filter:
+                                    suggestions.append({
+                                        'title': bib.get('title', '(No title found)'),
+                                        'year': year,
+                                        'venue': bib.get('venue', bib.get('journal', '')),
+                                        'abstract': bib.get('abstract', '(No abstract found)'),
+                                        'url': bib.get('url', '')
+                                    })
+                                if len(suggestions) >= 3:
+                                    break
+                        except Exception:
+                            # Fallback to utility (may return 1)
+                            try:
+                                from utils.scholar_scraper_tab import search_scholar_followup
+                                single = search_scholar_followup(query_for_followup, year_filter)
+                                if single:
+                                    suggestions.append(single)
+                            except Exception:
+                                pass
+
+                        if suggestions:
+                            # Header
+                            st.markdown(
+                                """
+                                <div class="clean-card" style="border-left: 3px solid var(--accent-color); padding: var(--spacing-sm);">
+                                  <div style="display:flex; align-items:center; gap:0.5rem; font-weight:600; color: var(--accent-color);">🔎 Suggested Follow-up</div>
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+                            for s in suggestions:
+                                title_html = html.escape(s.get('title', '(No title)'))
+                                venue_html = html.escape(s.get('venue', ''))
+                                abstract_html = html.escape(s.get('abstract', ''))
+                                year_html = html.escape(s.get('year', ''))
+                                url = s.get('url')
+                                if not url:
+                                    url = f"https://scholar.google.com/scholar?q={quote(s.get('title',''))}"
+                                item_html = (
+                                    f"<div class=\"clean-card\" style=\"border-left: 3px solid var(--primary-color); padding: var(--spacing-sm);\">"
+                                    f"  <div style='font-weight:600; color: var(--text-primary);'>{title_html}</div>"
+                                    f"  <div style='color: var(--text-muted); font-size: 0.9em'>{year_html}{' • ' + venue_html if venue_html else ''}</div>"
+                                    f"  <div style='margin-top:0.5rem; line-height:1.6; color: var(--text-secondary);'>{abstract_html}</div>"
+                                    f"  <div style='margin-top:0.5rem'><a href='{url}' target='_blank'>Open</a></div>"
+                                    f"</div>"
+                                )
+                                st.markdown(item_html, unsafe_allow_html=True)
+                        else:
+                            st.info("No follow-up suggestions found.")
+                else:
+                    # Add timing info to the title
+                    timing_info = ""
+                    if st.session_state.get('answer_generation_time'):
+                        timing_info = f" ⏱️ {st.session_state['answer_generation_time']:.1f}s"
+                    
+                    st.markdown(create_clean_card(
+                        title=f"AI-Generated Answer{timing_info}",
+                        content=st.session_state['qa_answer'],
+                        icon="🤖",
+                        variant="default"
+                    ), unsafe_allow_html=True)
+                
+                # Minimal answer presentation; remove extra captions
             
-            # Display previous follow-up answers as selectable context cards
-            if st.session_state.get('follow_up_history'):
-                st.markdown("**📚 Previous Follow-up Answers (Select as Context):**")
-                context_container = st.container()
-                with context_container:
-                    # Create a grid layout for context cards
-                    cols = st.columns(2)
-                    for i, (question, answer, timestamp) in enumerate(st.session_state.follow_up_history):
-                        with cols[i % 2]:
-                            with st.expander(f"Q{i+1}: {question[:50]}...", expanded=False):
-                                st.markdown(f"**Question:** {question}")
-                                st.markdown(f"**Answer:** {answer[:200]}...")
-                                st.markdown(f"**Time:** {timestamp}")
-                                
-                                # Row for actions
-                                col_check, col_delete = st.columns([3, 1])
-                                with col_check:
-                                    # Checkbox to select this answer as context
-                                    if st.checkbox(f"Use as context", key=f"context_{i}"):
-                                        if i not in st.session_state.selected_context_answers:
-                                            st.session_state.selected_context_answers.append(i)
-                                    else:
-                                        if i in st.session_state.selected_context_answers:
-                                            st.session_state.selected_context_answers.remove(i)
-                                
-                                with col_delete:
-                                    # Button to remove this specific follow-up
-                                    if st.button("🗑️", key=f"delete_{i}", help="Remove this follow-up"):
-                                        st.session_state.follow_up_history.pop(i)
-                                        # Adjust selected context indices
-                                        st.session_state.selected_context_answers = [
-                                            idx if idx < i else idx - 1 
-                                            for idx in st.session_state.selected_context_answers 
-                                            if idx != i
-                                        ]
-                                        st.rerun()
+            # Follow-up (single combined form) without extra spacer box
+            with st.form("followup_form", clear_on_submit=False):
+                # Header with timing information
+                col_header, col_timing = st.columns([3, 1])
+                with col_header:
+                    st.markdown("**💭 Follow-up Question**")
+                    st.caption("Ask a follow-up question based on the previous answer.")
+                with col_timing:
+                    current_time = datetime.datetime.now().strftime("%H:%M:%S")
+                    st.caption(f"⏰ {current_time}")
                 
-                # Show selected context summary
-                context_summary = []
-                
-                # Add current answer if selected
-                if st.session_state.get('current_answer_as_context', False):
-                    context_summary.append("Current Answer")
-                
-                # Add selected historical answers
-                for idx in st.session_state.selected_context_answers:
-                    if idx < len(st.session_state.follow_up_history):
-                        question, answer, _ = st.session_state.follow_up_history[idx]
-                        context_summary.append(f"Q{idx+1}: {question[:30]}...")
-                
-                if context_summary:
-                    st.caption(f"✅ Selected context: {', '.join(context_summary)}")
-            
-            follow_up_question = st.text_area(
-                "Follow-up Question:",
-                placeholder="Ask a follow-up question based on the previous answer...",
-                height=80,
-                key="follow_up_question"
-            )
-            
-            col_followup1, col_followup2 = st.columns([1, 1])
-            with col_followup1:
-                if st.button("🔍 Ask Follow-up", type="secondary", use_container_width=True):
+                follow_up_question = st.text_area(
+                    "",
+                    placeholder="Ask a follow-up question based on the previous answer...",
+                    height=80,
+                    key="follow_up_question",
+                    label_visibility="collapsed"
+                )
+                col_followup1, col_followup2 = st.columns([1, 1])
+                with col_followup1:
+                    ask_followup_pressed = st.form_submit_button("🔍 Ask Follow-up", use_container_width=True)
+                with col_followup2:
+                    clear_followup_pressed = st.form_submit_button("🗑️ Clear Follow-up", use_container_width=True)
+
+            if ask_followup_pressed:
                     if follow_up_question.strip():
                         if st.session_state.llm:
                             # Build context from selected follow-up answers and current answer
@@ -1197,7 +1995,9 @@ def main():
                             
                             # Include current answer as context if toggle is enabled
                             if st.session_state.get('current_answer_as_context', False) and st.session_state.get('follow_up_answer'):
-                                context_parts.append(f"Current Follow-up Q&A:\nQ: {st.session_state.get('follow_up_question', 'Unknown')}\nA: {st.session_state['follow_up_answer']}")
+                                # Use the latest follow-up question from session state
+                                latest_q = st.session_state.get('latest_follow_up_question', follow_up_question)
+                                context_parts.append(f"Current Follow-up Q&A:\nQ: {latest_q}\nA: {st.session_state['follow_up_answer']}")
                             
                             # Include selected historical follow-up answers
                             if st.session_state.selected_context_answers:
@@ -1209,150 +2009,255 @@ def main():
                             if context_parts:
                                 additional_context = "\n\nAdditional Context from Follow-ups:\n" + "\n\n".join(context_parts)
                             
+                            # Create a simplified follow-up prompt to avoid token limits
+                            # Truncate context if it's too long
+                            max_context_length = 2000  # Limit context to avoid token overflow
+                            truncated_answer = st.session_state['qa_answer'][:max_context_length] + "..." if len(st.session_state['qa_answer']) > max_context_length else st.session_state['qa_answer']
+                            truncated_context = additional_context[:max_context_length] + "..." if len(additional_context) > max_context_length else additional_context
+                            
                             # Use centralized prompt for follow-up questions
                             follow_up_prompt = get_follow_up_prompt(
-                                previous_answer=st.session_state['qa_answer'],
-                                additional_context=additional_context,
+                                previous_answer=truncated_answer,
+                                additional_context=truncated_context,
                                 follow_up_question=follow_up_question,
                                 summarize=st.session_state.get('summarize_answers', False)
                             )
+                            if st.session_state.get('design_outline'):
+                                follow_up_prompt += "\n\nAdditionally, generate detailed experimental outline, with specific experiment procedure and outline the challenges and expected result."
                             
                             with st.spinner("Generating follow-up answer..."):
                                 try:
+                                    # Debug: Check if we have a valid previous answer
+                                    if not st.session_state.get('qa_answer'):
+                                        st.error("No previous answer found. Please ask a main question first.")
+                                        return
+                                    
                                     follow_up_answer = st.session_state.llm.invoke(follow_up_prompt)
+                                    
+                                    # Debug: Check if the answer is empty
+                                    if not follow_up_answer or follow_up_answer.strip() == "":
+                                        st.warning("LLM returned an empty response. Trying with a simplified prompt...")
+                                        
+                                        # Try with a much simpler prompt
+                                        simple_prompt = f"""Based on the previous answer, please respond to this follow-up question:
+
+Previous Answer: {truncated_answer[:1000]}...
+
+Follow-up Question: {follow_up_question}
+
+Please provide a comprehensive response:"""
+                                        
+                                        try:
+                                            follow_up_answer = st.session_state.llm.invoke(simple_prompt)
+                                            if not follow_up_answer or follow_up_answer.strip() == "":
+                                                st.error("LLM still returned an empty response. This might indicate a model issue.")
+                                                st.error(f"Debug - follow_up_question: '{follow_up_question}'")
+                                                st.error(f"Debug - previous_answer length: {len(st.session_state.get('qa_answer', ''))}")
+                                                st.error(f"Debug - additional_context length: {len(additional_context)}")
+                                                return
+                                        except Exception as e2:
+                                            st.error(f"Error with simplified prompt: {e2}")
+                                            return
                                     
                                     # Store the follow-up Q&A in history
                                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                    st.session_state.follow_up_history.append((follow_up_question, follow_up_answer, timestamp))
                                     
+                                    # Clean up the answer to remove thinking process indicators
+                                    clean_follow_up_answer = follow_up_answer
+                                    thinking_indicators = [
+                                        "<think>", "</think>", "Let me think about this", "I need to", 
+                                        "First, let me", "Let me analyze", "I should", 
+                                        "This is an interesting question", "To answer this",
+                                        "Based on my understanding", "I'll help you", "Let me break this down"
+                                    ]
+                                    
+                                    for indicator in thinking_indicators:
+                                        if indicator in clean_follow_up_answer:
+                                            clean_follow_up_answer = clean_follow_up_answer.replace(indicator, "")
+                                    
+                                    # Clean up any remaining HTML-like tags
+                                    import re
+                                    clean_follow_up_answer = re.sub(r'<[^>]+>', '', clean_follow_up_answer)
+                                    
+                                    st.session_state.follow_up_history.append((follow_up_question, clean_follow_up_answer, timestamp))
                                     # Store the current follow-up answer for display
-                                    st.session_state['follow_up_answer'] = follow_up_answer
-                                    st.session_state['follow_up_question'] = follow_up_question
-                                    
+                                    st.session_state['follow_up_answer'] = clean_follow_up_answer
+                                    # Store the current follow-up question for context
+                                    st.session_state['latest_follow_up_question'] = follow_up_question
                                     # Clear selected context after using it
                                     st.session_state.selected_context_answers = []
                                     st.session_state.current_answer_as_context = False
-                                    
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Error generating follow-up answer: {e}")
+                                    # Add debug information
+                                    st.error(f"Debug - follow_up_question: '{follow_up_question}'")
+                                    st.error(f"Debug - follow_up_prompt length: {len(follow_up_prompt)}")
+                                    st.error(f"Debug - previous_answer exists: {bool(st.session_state.get('qa_answer'))}")
                         else:
                             st.error("LLM not available for follow-up questions. Please load an LLM model first.")
                     else:
                         st.warning("Please enter a follow-up question.")
             
-            with col_followup2:
-                if st.button("🗑️ Clear Follow-up", type="secondary", use_container_width=True):
-                    # Clear follow-up related session state
-                    if 'follow_up_answer' in st.session_state:
-                        del st.session_state['follow_up_answer']
-                    if 'follow_up_question' in st.session_state:
-                        del st.session_state['follow_up_question']
-                    # Clear history and selected context
-                    st.session_state.follow_up_history = []
-                    st.session_state.selected_context_answers = []
-                    st.session_state.current_answer_as_context = False
-                    st.rerun()
+            if clear_followup_pressed:
+                # Clear follow-up related session state
+                if 'follow_up_answer' in st.session_state:
+                    del st.session_state['follow_up_answer']
+                # Do not delete the widget value; clear only our latest copy
+                if 'latest_follow_up_question' in st.session_state:
+                    del st.session_state['latest_follow_up_question']
+                # Clear history and selected context
+                st.session_state.follow_up_history = []
+                st.session_state.selected_context_answers = []
+                st.session_state.current_answer_as_context = False
+                st.rerun()
             
-            # Display current follow-up answer if exists
-            if st.session_state.get('follow_up_answer'):
+            # Display current follow-up answer if it exists (before it gets added to history)
+            if st.session_state.get('follow_up_answer') and st.session_state.get('latest_follow_up_question'):
                 st.markdown(create_clean_divider(), unsafe_allow_html=True)
-                st.markdown(create_clean_card(
-                    title="Latest Follow-up Answer",
-                    content=st.session_state['follow_up_answer'],
-                    icon="💡",
-                    variant="success"
-                ), unsafe_allow_html=True)
-                st.caption(f"Follow-up to: {st.session_state.get('follow_up_question', 'Unknown question')}")
                 
-                # Show summarize indicator if enabled
-                if st.session_state.get('summarize_answers', False):
-                    st.caption("📝 **Summarized to 3-5 sentences**")
+                # Get current timestamp for display
+                current_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
-                # Display current follow-up as a selectable context card
-                with st.expander("📋 Current Follow-up Answer", expanded=True):
-                    st.markdown(f"**Question:** {st.session_state.get('follow_up_question', 'Unknown question')}")
-                    st.markdown(f"**Answer:** {st.session_state['follow_up_answer']}")
-                    st.markdown(f"**Time:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                    
-                    # Toggle to select this answer as context for next question
-                    st.markdown("---")
-                    if st.checkbox("✅ Use this answer as context for next follow-up question", key="current_context_toggle"):
-                        st.session_state['current_answer_as_context'] = True
-                        st.caption("✅ This answer will be included as context for your next follow-up question")
-                    else:
-                        st.session_state['current_answer_as_context'] = False
-                        st.caption("ℹ️ This answer will not be included as context")
+                # Display current follow-up with timing information
+                col_title, col_timing = st.columns([3, 1])
+                with col_title:
+                    st.markdown("**💭 Current Follow-up Answer**")
+                with col_timing:
+                    st.caption(f"⏱️ {current_timestamp}")
+                
+                # Show the question and answer
+                st.markdown(f"**Q:** {st.session_state['latest_follow_up_question']}")
+                
+                # Clean up the answer for display
+                clean_current_answer = st.session_state['follow_up_answer']
+                thinking_indicators = [
+                    "<think>", "</think>", "Let me think about this", "I need to", 
+                    "First, let me", "Let me analyze", "I should", 
+                    "This is an interesting question", "To answer this",
+                    "Based on my understanding", "I'll help you", "Let me break this down"
+                ]
+                
+                for indicator in thinking_indicators:
+                    if indicator in clean_current_answer:
+                        clean_current_answer = clean_current_answer.replace(indicator, "")
+                
+                # Clean up any remaining HTML-like tags
+                import re
+                clean_current_answer = re.sub(r'<[^>]+>', '', clean_current_answer)
+                
+                st.markdown(f"**A:** {clean_current_answer}")
+                st.caption("This answer will be added to your follow-up history.")
             
-            # Export Q&A session to markdown
+            # Show follow-up history as brief, two-column cards with inline full-content toggle
+            if st.session_state.get('follow_up_history'):
+                items = list(reversed(list(enumerate(st.session_state.follow_up_history))))
+                for row_start in range(0, len(items), 2):
+                    cols = st.columns(2)
+                    for col_idx, (orig_idx, (fq, fa, ts)) in enumerate(items[row_start:row_start+2]):
+                        with cols[col_idx]:
+                            # Header row: title + timing + context toggle
+                            hcol_title, hcol_timing, hcol_toggle = st.columns([2, 2, 2])
+                            with hcol_title:
+                                st.markdown(f"**Follow-up {orig_idx+1}**")
+                            with hcol_timing:
+                                # Show timing information
+                                st.caption(f"⏱️ {ts}")
+                            with hcol_toggle:
+                                try:
+                                    use_ctx = st.toggle(
+                                        "",
+                                        key=f"context_toggle_{orig_idx}",
+                                        value=(orig_idx in st.session_state.selected_context_answers),
+                                        label_visibility="collapsed",
+                                        help="Use as context for next follow-up"
+                                    )
+                                except Exception:
+                                    use_ctx = st.checkbox(
+                                        "",
+                                        key=f"context_toggle_{orig_idx}",
+                                        value=(orig_idx in st.session_state.selected_context_answers),
+                                        label_visibility="collapsed",
+                                        help="Use as context for next follow-up"
+                                    )
+                                if use_ctx and orig_idx not in st.session_state.selected_context_answers:
+                                    st.session_state.selected_context_answers.append(orig_idx)
+                                if not use_ctx and orig_idx in st.session_state.selected_context_answers:
+                                    st.session_state.selected_context_answers.remove(orig_idx)
+
+                            # Summary: Show the question instead of thinking process
+                            # Clean up the answer to remove thinking process indicators
+                            clean_answer = fa or ""
+                            thinking_indicators = [
+                                "<think>", "</think>", "Let me think about this", "I need to", 
+                                "First, let me", "Let me analyze", "I should", 
+                                "This is an interesting question", "To answer this",
+                                "Based on my understanding", "I'll help you", "Let me break this down"
+                            ]
+                            
+                            for indicator in thinking_indicators:
+                                if indicator in clean_answer:
+                                    clean_answer = clean_answer.replace(indicator, "")
+                            
+                            # Clean up any remaining HTML-like tags
+                            import re
+                            clean_answer = re.sub(r'<[^>]+>', '', clean_answer)
+                            
+                            # Show the question in the summary card instead of the answer
+                            st.markdown(
+                                f"""
+                                <div class=\"clean-card\" style=\"border-left: 3px solid var(--success-color); padding: var(--spacing-md);\"> 
+                                  <div style=\"color: var(--text-primary); font-weight: 500; margin-bottom: 8px;\">Q: {fq}</div>
+                                  <div style=\"white-space: pre-wrap; color: var(--text-secondary); font-size: 0.9em;\">{html.escape(clean_answer[:200])}{'...' if len(clean_answer) > 200 else ''}</div>
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+                            # Full content directly below the card using native Streamlit
+                            with st.expander("Show full content", expanded=False):
+                                st.markdown(f"**Q:** {fq}")
+                                st.markdown(f"**A:** {clean_answer}")
+                                st.caption(f"Time: {ts}")
+            
+            # Export Q&A session (single card)
             st.markdown(create_clean_divider(), unsafe_allow_html=True)
             st.markdown(create_clean_card(
                 title="Export Q&A Session",
-                content="Download the complete Q&A session including main question, answer, and all follow-ups as a markdown file.",
+                content="Download the complete Q&A session including main question, answer, and recent follow-ups as a markdown file.",
                 icon="📥",
                 variant="info"
             ), unsafe_allow_html=True)
+
+            md_content = "# Q&A Session Report\n\n"
+            md_content += f"**Generated on:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            if st.session_state.get('qa_answer'):
+                md_content += "## Main Question & Answer\n\n"
+                md_content += f"**Question:** {st.session_state.get('original_question', 'Unknown question')}\n\n"
+                md_content += f"**Answer:**\n{st.session_state['qa_answer']}\n\n"
+            if st.session_state.get('follow_up_history'):
+                md_content += "## Follow-up Questions & Answers\n\n"
+                for i, (question, answer, timestamp) in enumerate(st.session_state.follow_up_history, 1):
+                    md_content += f"### Follow-up {i}\n\n"
+                    md_content += f"**Question:** {question}\n\n"
+                    md_content += f"**Answer:**\n{answer}\n\n"
+                    md_content += f"**Timestamp:** {timestamp}\n\n"
+                    md_content += "---\n\n"
+            if st.session_state.get('follow_up_answer'):
+                md_content += "## Latest Follow-up\n\n"
+                md_content += f"**Question:** {st.session_state.get('latest_follow_up_question', 'Unknown question')}\n\n"
+                md_content += f"**Answer:**\n{st.session_state['follow_up_answer']}\n\n"
+                md_content += f"**Timestamp:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+
+            filename = f"qa_session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+            st.download_button(
+                label="📥 Download Q&A Session as Markdown",
+                data=md_content,
+                file_name=filename,
+                mime="text/markdown",
+                help="Download the Q&A session"
+            )
             
-            # Generate markdown content
-            if st.session_state.get('qa_answer') or st.session_state.get('follow_up_history'):
-                # Create markdown content
-                md_content = "# Q&A Session Report\n\n"
-                md_content += f"**Generated on:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                
-                # Add main question and answer
-                if st.session_state.get('qa_answer'):
-                    md_content += "## Main Question & Answer\n\n"
-                    md_content += f"**Question:** {st.session_state.get('original_question', 'Unknown question')}\n\n"
-                    md_content += f"**Answer:**\n{st.session_state['qa_answer']}\n\n"
-                
-                # Add follow-up history
-                if st.session_state.get('follow_up_history'):
-                    md_content += "## Follow-up Questions & Answers\n\n"
-                    for i, (question, answer, timestamp) in enumerate(st.session_state.follow_up_history, 1):
-                        md_content += f"### Follow-up {i}\n\n"
-                        md_content += f"**Question:** {question}\n\n"
-                        md_content += f"**Answer:**\n{answer}\n\n"
-                        md_content += f"**Timestamp:** {timestamp}\n\n"
-                        md_content += "---\n\n"
-                
-                # Add current follow-up if exists
-                if st.session_state.get('follow_up_answer'):
-                    md_content += "## Latest Follow-up\n\n"
-                    md_content += f"**Question:** {st.session_state.get('follow_up_question', 'Unknown question')}\n\n"
-                    md_content += f"**Answer:**\n{st.session_state['follow_up_answer']}\n\n"
-                    md_content += f"**Timestamp:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                
-                # Create download button
-                filename = f"qa_session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
-                st.download_button(
-                    label="📥 Download Q&A Session as Markdown",
-                    data=md_content,
-                    file_name=filename,
-                    mime="text/markdown",
-                    help="Download the complete Q&A session including main question, answer, and all follow-ups"
-                )
-                
-                # Show preview
-                with st.expander("👀 Preview Markdown Content", expanded=False):
-                    st.code(md_content, language="markdown")
-            else:
-                st.info("No Q&A content available to export. Ask a question first!")
-            
-            # Debug information in collapsible section
-            with st.expander("🔍 Debug Information", expanded=False):
-                st.caption(f"🔍 Debug: Answer stored in session state. Length: {len(st.session_state['qa_answer']) if st.session_state['qa_answer'] else 0}")
-                st.caption(f"🔍 Debug: Answer preview: {st.session_state['qa_answer'][:100] + '...' if st.session_state['qa_answer'] and len(st.session_state['qa_answer']) > 100 else st.session_state['qa_answer']}")
-                st.caption(f"🔍 Debug: gap_toggle: {gap_toggle}")
-                st.caption(f"🔍 Debug: optimized_question exists: {'optimized_question' in st.session_state}")
-                if 'optimized_question' in st.session_state:
-                    st.caption(f"🔍 Debug: optimized_question value: {st.session_state.optimized_question}")
-                st.caption(f"🔍 Debug: selected_papers count: {len(selected_papers) if selected_papers else 0}")
-                if selected_papers:
-                    st.caption(f"🔍 Debug: selected_papers: {selected_papers}")
-                # Follow-up debug info
-                if st.session_state.get('follow_up_answer'):
-                    st.caption(f"🔍 Debug: Follow-up answer length: {len(st.session_state['follow_up_answer'])}")
-                    st.caption(f"🔍 Debug: Follow-up question: {st.session_state.get('follow_up_question', 'Unknown')}")
+            # Remove debug box after answer
         else:
             # Show placeholder when no answer exists
             st.info("💡 Enter a question and click 'Ask Question' to see the answer here.")

@@ -81,12 +81,11 @@ def apply_clean_theme():
 
     .stButton > button:hover {
         background: var(--primary-dark);
-        transform: translateY(-1px);
         box-shadow: var(--shadow-md);
     }
 
     .stButton > button:active {
-        transform: translateY(0);
+        /* no motion on click */
     }
 
     /* Clean Input Fields */
@@ -231,17 +230,12 @@ def apply_clean_theme():
         background: var(--primary-dark);
     }
 
-    /* Clean Loading Spinner */
+    /* Clean Loading Spinner - no rotation */
     .stSpinner > div {
         border: 2px solid var(--border-color);
         border-top: 2px solid var(--primary-color);
         border-radius: 50%;
-        animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
+        animation: none !important;
     }
 
     /* Clean Badge/Tag */
@@ -307,23 +301,9 @@ def apply_clean_theme():
         }
     }
 
-    /* Animation Classes */
-    .fade-in {
-        animation: fadeIn 0.3s ease-in-out;
-    }
-
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(5px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-
-    .slide-in {
-        animation: slideIn 0.2s ease-out;
-    }
-
-    @keyframes slideIn {
-        from { transform: translateX(-10px); opacity: 0; }
-        to { transform: translateX(0); opacity: 1; }
+    /* Disable animations */
+    .fade-in, .slide-in {
+        animation: none !important;
     }
 
     /* Clean Status Indicators */
@@ -711,16 +691,23 @@ def apply_clean_tab_style():
     }
     
     .stTabs > div > div > div > div > div {
+        position: relative;
         border-radius: 6px;
         transition: var(--transition);
         font-weight: 500;
         padding: 0.5rem 1rem;
+        overflow: hidden;
     }
     
     .stTabs > div > div > div > div > div[aria-selected="true"] {
         background: var(--primary-color);
-        color: white;
+        color: white !important;
         box-shadow: var(--shadow-sm);
+    }
+    
+    /* Ensure background fully covers text area */
+    .stTabs > div > div > div > div > div[aria-selected="true"] * {
+        color: white !important;
     }
     
     .stTabs > div > div > div > div > div:hover:not([aria-selected="true"]) {

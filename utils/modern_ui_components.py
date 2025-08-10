@@ -82,12 +82,11 @@ def apply_modern_theme():
 
     .stButton > button:hover {
         background: linear-gradient(135deg, var(--primary-dark), var(--primary-color));
-        transform: translateY(-1px);
         box-shadow: var(--shadow-md);
     }
 
     .stButton > button:active {
-        transform: translateY(0);
+        /* no motion on click */
     }
 
     /* Secondary Button */
@@ -229,17 +228,12 @@ def apply_modern_theme():
         background: var(--primary-dark);
     }
 
-    /* Modern Loading Spinner */
+    /* Modern Loading Spinner - no rotation */
     .stSpinner > div {
         border: 3px solid var(--border-color);
         border-top: 3px solid var(--primary-color);
         border-radius: 50%;
-        animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
+        animation: none !important;
     }
 
     /* Modern Badge/Tag */
@@ -311,23 +305,9 @@ def apply_modern_theme():
         }
     }
 
-    /* Animation Classes */
-    .fade-in {
-        animation: fadeIn 0.5s ease-in-out;
-    }
-
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-
-    .slide-in {
-        animation: slideIn 0.3s ease-out;
-    }
-
-    @keyframes slideIn {
-        from { transform: translateX(-20px); opacity: 0; }
-        to { transform: translateX(0); opacity: 1; }
+    /* Disable animations */
+    .fade-in, .slide-in {
+        animation: none !important;
     }
 
     /* Modern Status Indicators */
@@ -612,15 +592,22 @@ def create_modern_tab_style() -> str:
     }
     
     .stTabs > div > div > div > div > div {
+        position: relative;
         border-radius: 8px;
         transition: all 0.2s ease;
         font-weight: 500;
+        padding: 0.5rem 1rem;
+        overflow: hidden;
     }
     
     .stTabs > div > div > div > div > div[aria-selected="true"] {
         background: linear-gradient(135deg, var(--primary-color), var(--primary-light));
-        color: white;
+        color: white !important;
         box-shadow: var(--shadow-sm);
+    }
+    
+    .stTabs > div > div > div > div > div[aria-selected="true"] * {
+        color: white !important;
     }
     
     .stTabs > div > div > div > div > div:hover:not([aria-selected="true"]) {

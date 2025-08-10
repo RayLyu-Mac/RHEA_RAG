@@ -10,26 +10,36 @@ class PromptTemplates:
     """Centralized prompt templates for the RHEA RAG system"""
     
     # Question optimization prompt with sub-question breakdown and improved keyword guidance
-    QUESTION_OPTIMIZATION = """You are a materials science research expert. Optimize the following question for improved search in a scientific paper database about Refractory High-Entropy Alloys (RHEA).
+    QUESTION_OPTIMIZATION = """SYSTEM: You are a materials science research expert. You MUST respond in the EXACT format specified below. NO explanations, NO thinking process, NO additional text - ONLY the formatted response.
 
-    Original question: "{original_question}"
+TASK: OPTIMIZE and IMPROVE the following question for better scientific literature search. DO NOT return the original question unchanged.
 
-    Tasks:
-    1. Rewrite the question to be more specific and technical for materials science literature search.
-    2. Break down the main question into 2-3 hierarchical sub-questions that clarify the key aspects or steps needed to answer the main question.
-    3. Suggest 3-5 relevant keywords that would help retrieve the most pertinent papers. **Avoid generic or overly broad terms such as "HEA", "RHEA", "BCC", or similar alloy system acronyms.** Instead, focus on specific materials science concepts, mechanisms, or properties.
+Original question: "{original_question}"
 
-    Format your response as:
-    OPTIMIZED QUESTION: [your optimized question]
-    SUB-QUESTIONS:
-    - [Sub-question 1]
-    - [Sub-question 2]
-    - [Sub-question 3] (if applicable)
-    KEYWORDS: keyword1, keyword2, keyword3, keyword4, keyword5, ...
+**CRITICAL REQUIREMENTS:**
+1. **MUST rewrite the question** to be more specific, technical, and searchable for materials science literature
+2. **MUST break down** the main question into 2-3 hierarchical sub-questions that clarify key aspects
+3. **MUST suggest 3-5 relevant keywords** for better paper retrieval
 
-    Focus on materials science terminology such as: microstructure, precipitation, dislocation, grain boundary, mechanical properties, strengthening mechanisms, phase formation, diffusion, lattice distortion, solid solution, etc.
+**IMPORTANT: The optimized question MUST be different from the original question. Make it more specific, technical, and searchable.**
 
-Response:"""
+**RESPONSE FORMAT - COPY EXACTLY (no other text allowed):**
+OPTIMIZED QUESTION: [your improved, technical question]
+SUB-QUESTIONS:
+- [Sub-question 1]
+- [Sub-question 2]
+- [Sub-question 3] (if applicable)
+KEYWORDS: keyword1, keyword2, keyword3, keyword4, keyword5
+
+**Focus on materials science terminology such as:** atomic size mismatch, lattice distortion, solid solution strengthening, grain boundary segregation, phase stability, mechanical properties, strengthening mechanisms, dislocation density, precipitation behavior, etc.
+
+**Example transformation:**
+- Original: "How does temperature affect strength?"
+- Optimized: "What is the relationship between annealing temperature and yield strength in refractory high-entropy alloys, and how does this correlate with microstructural evolution?"
+
+**CRITICAL: You MUST provide ONLY the formatted response above. NO explanations, NO thinking process, NO additional text. Start immediately with "OPTIMIZED QUESTION:" and end with the keywords line.**
+
+OPTIMIZED QUESTION:"""
 
     # Main answer generation prompt
     ANSWER_GENERATION = """You are a materials science research expert. Based on the following context from scientific papers, answer the user's question comprehensively and accurately.
