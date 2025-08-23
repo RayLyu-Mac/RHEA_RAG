@@ -8,6 +8,7 @@ import requests
 from langchain.llms import Ollama
 from typing import List, Tuple, Optional
 from langchain.schema import Document
+import tiktoken
 
 
 @st.cache_resource
@@ -194,12 +195,23 @@ def get_suggested_keywords() -> List[str]:
     return common_keywords
 
 
-def generate_answer(llm, question: str, search_results: List[Document], summarize: bool = False) -> str:
-    """Generate answer using LLM based on search results"""
+def count_tokens(text: str, model_name: str = "cl100k_base") -> int:
+    """Count tokens in text using tiktoken"""
+    try:
+        # Use cl100k_base encoding which is compatible with most modern models
+        encoding = tiktoken.get_encoding(model_name)
+        return len(encoding.encode(text))
+    except Exception:
+        # Fallback: approximate token count (roughly 4 characters per token)
+        return len(text) // 4
+
+def generate_answer(llm, question: str, search_results: List[Document], summarize: bool = False) -> Tuple[str, int]:
+    """Generate answer using LLM based on search results and return answer with token count"""
     if not llm:
         # Return a helpful message when LLM is not available
         if not search_results:
-            return "No relevant documents found for your question."
+            fallback_answer = "No relevant documents found for your question."
+            return fallback_answer, count_tokens(fallback_answer)
         
         # Create a simple summary of search results without LLM
         result_summary = []
@@ -210,7 +222,7 @@ def generate_answer(llm, question: str, search_results: List[Document], summariz
             
             result_summary.append(f"**{paper_name}** ({section}):\n{content_preview}\n")
         
-        return f"""**Search Results Summary (LLM not available):**
+        fallback_answer = f"""**Search Results Summary (LLM not available):**
 
 Your question: "{question}"
 
@@ -219,9 +231,12 @@ Found {len(search_results)} relevant documents. Here are the top results:
 {chr(10).join(result_summary)}
 
 *Note: LLM-powered answer generation is not available. Please check your model configuration or try loading a different model.*"""
+        
+        return fallback_answer, count_tokens(fallback_answer)
     
     if not search_results:
-        return "No relevant documents found for your question."
+        fallback_answer = "No relevant documents found for your question."
+        return fallback_answer, count_tokens(fallback_answer)
     
     try:
         # Prepare context
@@ -245,7 +260,9 @@ Found {len(search_results)} relevant documents. Here are the top results:
         prompt = get_answer_generation_prompt(combined_context, question, summarize)
         
         answer = llm.invoke(prompt)
-        return answer
+        token_count = count_tokens(answer)
+        return answer, token_count
         
     except Exception as e:
-        return f"Error during answer generation: {str(e)}" 
+        error_answer = f"Error during answer generation: {str(e)}"
+        return error_answer, count_tokens(error_answer) 

@@ -123,6 +123,7 @@ def initialize_session_state():
         'original_question': "",  # Store original question for export
         'followup_year_limit': 'All',  # Year filter for follow-up suggestions
         'answer_generation_time': None,  # Store time taken to generate answer
+        'answer_token_count': None,  # Store token count for generated answer
         # React dashboard integration
         'search_query': "",
         'search_options': {},
@@ -1066,7 +1067,7 @@ def process_search_query(query: str, selected_papers: List[str], llm_model: str,
                     num_results
                 )
                 if success and search_results:
-                    answer = generate_answer(st.session_state.llm, query, search_results, summarize_answers)
+                    answer, token_count = generate_answer(st.session_state.llm, query, search_results, summarize_answers)
                     papers_data = []
                     for doc in search_results:
                         paper_info = {
@@ -1080,7 +1081,14 @@ def process_search_query(query: str, selected_papers: List[str], llm_model: str,
                             'file_name': doc.metadata.get('file_name', 'Unknown')
                         }
                         papers_data.append(paper_info)
-                    return {'query': query, 'answer': answer, 'papers': papers_data, 'total_results': len(search_results), 'type': 'normal_search'}
+                    return {
+                        'query': query, 
+                        'answer': answer, 
+                        'papers': papers_data, 
+                        'total_results': len(search_results), 
+                        'type': 'normal_search',
+                        'token_count': token_count
+                    }
     return None
 
 
@@ -1276,12 +1284,16 @@ def handle_question_submission(question: str, llm_model: str, selected_papers: L
         
         if success and search_results:
             # Generate answer (with or without LLM)
-            answer = generate_answer(st.session_state.llm, question, search_results, st.session_state.get('summarize_answers', False))
+            answer, token_count = generate_answer(st.session_state.llm, question, search_results, st.session_state.get('summarize_answers', False))
             # If design outline requested, append instruction to the answer via a follow-up enhancement call when LLM is available
             if st.session_state.llm and st.session_state.get('design_outline'):
                 try:
                     design_suffix = "\n\nAdditionally, generate detailed experimental outline, with specific experiment procedure and outline the challenges and expected result."
-                    answer = st.session_state.llm.invoke(answer + design_suffix)
+                    enhanced_answer = st.session_state.llm.invoke(answer + design_suffix)
+                    # Update token count for enhanced answer
+                    from utils.llm_utils import count_tokens
+                    token_count = count_tokens(enhanced_answer)
+                    answer = enhanced_answer
                 except Exception:
                     pass
         else:
@@ -1289,12 +1301,16 @@ def handle_question_submission(question: str, llm_model: str, selected_papers: L
                 answer = "No relevant documents found for your question in the selected papers. Try broadening your selection or rephrasing your question."
             else:
                 answer = "No relevant documents found for your question."
+            # Count tokens for fallback answer
+            from utils.llm_utils import count_tokens
+            token_count = count_tokens(answer)
             search_results = []
     
     end_time = datetime.datetime.now()
-    # Store answer and timing in session state
+    # Store answer, timing, and token count in session state
     st.session_state['qa_answer'] = answer
     st.session_state['answer_generation_time'] = (end_time - start_time).total_seconds()
+    st.session_state['answer_token_count'] = token_count
     
     # Display sources card
     if search_results:
@@ -1863,13 +1879,15 @@ def main():
                 if st.session_state.get('followup_toggle', False):
                     col_ans, col_suggest = st.columns([7, 3])
                     with col_ans:
-                        # Add timing info to the title
-                        timing_info = ""
+                        # Add timing and token info to the title
+                        info_text = ""
                         if st.session_state.get('answer_generation_time'):
-                            timing_info = f" ⏱️ {st.session_state['answer_generation_time']:.1f}s"
+                            info_text += f" ⏱️ {st.session_state['answer_generation_time']:.1f}s"
+                        if st.session_state.get('answer_token_count'):
+                            info_text += f" 📝 {st.session_state['answer_token_count']} tokens"
                         
                         st.markdown(create_clean_card(
-                            title=f"AI-Generated Answer{timing_info}",
+                            title=f"AI-Generated Answer{info_text}",
                             content=st.session_state['qa_answer'],
                             icon="🤖",
                             variant="default"
@@ -1948,13 +1966,15 @@ def main():
                         else:
                             st.info("No follow-up suggestions found.")
                 else:
-                    # Add timing info to the title
-                    timing_info = ""
+                    # Add timing and token info to the title
+                    info_text = ""
                     if st.session_state.get('answer_generation_time'):
-                        timing_info = f" ⏱️ {st.session_state['answer_generation_time']:.1f}s"
+                        info_text += f" ⏱️ {st.session_state['answer_generation_time']:.1f}s"
+                    if st.session_state.get('answer_token_count'):
+                        info_text += f" 📝 {st.session_state['answer_token_count']} tokens"
                     
                     st.markdown(create_clean_card(
-                        title=f"AI-Generated Answer{timing_info}",
+                        title=f"AI-Generated Answer{info_text}",
                         content=st.session_state['qa_answer'],
                         icon="🤖",
                         variant="default"
@@ -2034,6 +2054,10 @@ def main():
                                     
                                     follow_up_answer = st.session_state.llm.invoke(follow_up_prompt)
                                     
+                                    # Count tokens for follow-up answer
+                                    from utils.llm_utils import count_tokens
+                                    follow_up_token_count = count_tokens(follow_up_answer)
+                                    
                                     # Debug: Check if the answer is empty
                                     if not follow_up_answer or follow_up_answer.strip() == "":
                                         st.warning("LLM returned an empty response. Trying with a simplified prompt...")
@@ -2055,6 +2079,9 @@ Please provide a comprehensive response:"""
                                                 st.error(f"Debug - previous_answer length: {len(st.session_state.get('qa_answer', ''))}")
                                                 st.error(f"Debug - additional_context length: {len(additional_context)}")
                                                 return
+                                            else:
+                                                # Update token count for simplified prompt answer
+                                                follow_up_token_count = count_tokens(follow_up_answer)
                                         except Exception as e2:
                                             st.error(f"Error with simplified prompt: {e2}")
                                             return
@@ -2079,11 +2106,13 @@ Please provide a comprehensive response:"""
                                     import re
                                     clean_follow_up_answer = re.sub(r'<[^>]+>', '', clean_follow_up_answer)
                                     
-                                    st.session_state.follow_up_history.append((follow_up_question, clean_follow_up_answer, timestamp))
+                                    st.session_state.follow_up_history.append((follow_up_question, clean_follow_up_answer, timestamp, follow_up_token_count))
                                     # Store the current follow-up answer for display
                                     st.session_state['follow_up_answer'] = clean_follow_up_answer
                                     # Store the current follow-up question for context
                                     st.session_state['latest_follow_up_question'] = follow_up_question
+                                    # Store the token count for current follow-up answer
+                                    st.session_state['follow_up_token_count'] = follow_up_token_count
                                     # Clear selected context after using it
                                     st.session_state.selected_context_answers = []
                                     st.session_state.current_answer_as_context = False
@@ -2119,12 +2148,15 @@ Please provide a comprehensive response:"""
                 # Get current timestamp for display
                 current_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
-                # Display current follow-up with timing information
-                col_title, col_timing = st.columns([3, 1])
+                # Display current follow-up with timing and token information
+                col_title, col_timing, col_tokens = st.columns([2, 1, 1])
                 with col_title:
                     st.markdown("**💭 Current Follow-up Answer**")
                 with col_timing:
                     st.caption(f"⏱️ {current_timestamp}")
+                with col_tokens:
+                    if st.session_state.get('follow_up_token_count'):
+                        st.caption(f"📝 {st.session_state['follow_up_token_count']} tokens")
                 
                 # Show the question and answer
                 st.markdown(f"**Q:** {st.session_state['latest_follow_up_question']}")
@@ -2154,15 +2186,18 @@ Please provide a comprehensive response:"""
                 items = list(reversed(list(enumerate(st.session_state.follow_up_history))))
                 for row_start in range(0, len(items), 2):
                     cols = st.columns(2)
-                    for col_idx, (orig_idx, (fq, fa, ts)) in enumerate(items[row_start:row_start+2]):
+                    for col_idx, (orig_idx, (fq, fa, ts, tc)) in enumerate(items[row_start:row_start+2]):
                         with cols[col_idx]:
-                            # Header row: title + timing + context toggle
-                            hcol_title, hcol_timing, hcol_toggle = st.columns([2, 2, 2])
+                            # Header row: title + timing + tokens + context toggle
+                            hcol_title, hcol_timing, hcol_tokens, hcol_toggle = st.columns([2, 1, 1, 2])
                             with hcol_title:
                                 st.markdown(f"**Follow-up {orig_idx+1}**")
                             with hcol_timing:
                                 # Show timing information
                                 st.caption(f"⏱️ {ts}")
+                            with hcol_tokens:
+                                # Show token count
+                                st.caption(f"📝 {tc} tokens")
                             with hcol_toggle:
                                 try:
                                     use_ctx = st.toggle(
