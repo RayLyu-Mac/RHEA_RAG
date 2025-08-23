@@ -7,7 +7,7 @@ import streamlit as st
 import os
 import pandas as pd
 from PIL import Image
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Any
 
 
 @st.cache_data
@@ -131,21 +131,87 @@ def group_papers_by_folder(paper_list: List[Dict]) -> Dict[str, List[Dict]]:
     return folders
 
 
-def get_folder_config() -> Tuple[List[str], Dict[str, str]]:
-    """Get folder configuration with order and icons"""
-    folder_order = ["dislocation", "grainBoundary", "Precipitation", "SSS"]
-    folder_icons = {
-        "dislocation": "🔧",
-        "grainBoundary": "🧱", 
-        "Precipitation": "💧",
-        "SSS": "🔬"
+def get_folder_config() -> Tuple[List[str], Dict[str, str], Dict[str, List[str]]]:
+    """Get hierarchical folder configuration with order, icons, and subfolder mapping"""
+    # Define the main research areas (top level)
+    main_folders = ["RHEA_Strengthening", "Other_Research_Areas"]
+    
+    # Define subfolders for each main area
+    folder_hierarchy = {
+        "RHEA_Strengthening": ["SSS", "dislocation", "grainBoundary", "Precipitation"],
+        "Other_Research_Areas": []  # Placeholder for future research areas
+    }
+    
+    # Icons for main folders
+    main_folder_icons = {
+        "RHEA_Strengthening": "🔬",
+        "Other_Research_Areas": "📚"
+    }
+    
+    # Icons for subfolders
+    subfolder_icons = {
+        "SSS": "🔬",
+        "dislocation": "🔧", 
+        "grainBoundary": "🧱",
+        "Precipitation": "💧"
     }
     
     # Debug: Print folder configuration
-    print(f"📁 Folder config - Order: {folder_order}")
-    print(f"📁 Folder config - Icons: {folder_icons}")
+    print(f"📁 Main folders: {main_folders}")
+    print(f"📁 Folder hierarchy: {folder_hierarchy}")
+    print(f"📁 Main folder icons: {main_folder_icons}")
+    print(f"📁 Subfolder icons: {subfolder_icons}")
     
-    return folder_order, folder_icons
+    return main_folders, main_folder_icons, folder_hierarchy
+
+
+def get_all_folder_icons() -> Dict[str, str]:
+    """Get all folder icons (main folders + subfolders)"""
+    _, main_icons, hierarchy = get_folder_config()
+    subfolder_icons = {
+        "SSS": "🔬",
+        "dislocation": "🔧", 
+        "grainBoundary": "🧱",
+        "Precipitation": "💧"
+    }
+    
+    # Combine main and subfolder icons
+    all_icons = {**main_icons, **subfolder_icons}
+    return all_icons
+
+
+def get_flat_folder_order() -> List[str]:
+    """Get flat list of all folders for backward compatibility"""
+    _, _, hierarchy = get_folder_config()
+    flat_order = []
+    for main_folder, subfolders in hierarchy.items():
+        flat_order.extend(subfolders)
+    return flat_order
+
+
+def get_paper_hierarchy(paper_list: List[Dict]) -> Dict[str, Dict[str, List[Dict]]]:
+    """Organize papers into hierarchical structure"""
+    hierarchy = {}
+    
+    for paper in paper_list:
+        # Get the subfolder (e.g., "SSS", "dislocation")
+        subfolder = paper.get('folder', 'Unknown')
+        
+        # Determine which main folder this subfolder belongs to
+        main_folder = "RHEA_Strengthening"  # Default for current subfolders
+        
+        # Initialize main folder if not exists
+        if main_folder not in hierarchy:
+            hierarchy[main_folder] = {}
+        
+        # Initialize subfolder if not exists
+        if subfolder not in hierarchy[main_folder]:
+            hierarchy[main_folder][subfolder] = []
+        
+        # Add paper to subfolder
+        hierarchy[main_folder][subfolder].append(paper)
+    
+    return hierarchy
 
 
 def display_image_safely(image_path: str, caption: str = None, use_container_width: bool = True) -> bool:
@@ -173,3 +239,68 @@ def get_paper_stats(paper_list: List[Dict]) -> Dict[str, int]:
         stats[f'{folder}_count'] = len(papers)
     
     return stats 
+
+
+def add_research_area(main_folder_name: str, subfolders: List[str], icon: str = "📚") -> None:
+    """
+    Add a new research area to the folder hierarchy.
+    This function allows dynamic addition of new research areas without modifying the core code.
+    
+    Args:
+        main_folder_name: Name of the main research area (e.g., "RHEA_Corrosion")
+        subfolders: List of subfolder names for this research area
+        icon: Icon to use for the main folder
+    """
+    # Get current configuration
+    main_folders, main_folder_icons, folder_hierarchy = get_folder_config()
+    
+    # Add new research area
+    if main_folder_name not in main_folders:
+        main_folders.append(main_folder_name)
+        main_folder_icons[main_folder_name] = icon
+        folder_hierarchy[main_folder_name] = subfolders
+        
+        print(f"✅ Added new research area: {main_folder_name} with subfolders: {subfolders}")
+    else:
+        print(f"⚠️ Research area {main_folder_name} already exists")
+
+
+def get_research_area_info(main_folder_name: str) -> Dict[str, Any]:
+    """
+    Get information about a specific research area.
+    
+    Args:
+        main_folder_name: Name of the main research area
+        
+    Returns:
+        Dictionary containing folder info, subfolders, and icon
+    """
+    main_folders, main_folder_icons, folder_hierarchy = get_folder_config()
+    
+    if main_folder_name in main_folders:
+        return {
+            'name': main_folder_name,
+            'icon': main_folder_icons.get(main_folder_name, '📁'),
+            'subfolders': folder_hierarchy.get(main_folder_name, []),
+            'total_subfolders': len(folder_hierarchy.get(main_folder_name, []))
+        }
+    else:
+        return None
+
+
+def list_all_research_areas() -> List[Dict[str, Any]]:
+    """
+    List all research areas with their information.
+    
+    Returns:
+        List of dictionaries containing research area information
+    """
+    main_folders, main_folder_icons, folder_hierarchy = get_folder_config()
+    
+    research_areas = []
+    for main_folder in main_folders:
+        info = get_research_area_info(main_folder)
+        if info:
+            research_areas.append(info)
+    
+    return research_areas 

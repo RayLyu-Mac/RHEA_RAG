@@ -45,7 +45,7 @@ from utils import (
     # LLM utilities  
     load_llm, get_available_ollama_models, optimize_question, get_suggested_keywords, generate_answer,
     # Data utilities
-    load_paper_list, get_paper_figures, get_folder_config, display_image_safely, get_paper_stats,
+    load_paper_list, get_paper_figures, get_folder_config, get_all_folder_icons, display_image_safely, get_paper_stats,
     # UI components
     apply_theme_css, create_glass_card, create_content_card, create_optimize_card,
     display_theme_toggle, display_paper_selection, display_keyword_selection,
@@ -234,7 +234,12 @@ def display_sidebar() -> tuple:
             # Paper Selection Section (now collapsible)
             with st.expander("📚 Paper Selection", expanded=True):
                 if st.session_state.paper_list:
-                    folder_order, folder_icons = get_folder_config()
+                    main_folders, main_folder_icons, folder_hierarchy = get_folder_config()
+                    # Get flat folder order for backward compatibility
+                    folder_order = []
+                    for main_folder, subfolders in folder_hierarchy.items():
+                        folder_order.extend(subfolders)
+                    folder_icons = get_all_folder_icons()
                     selected_papers = display_paper_selection(st.session_state.paper_list, folder_order, folder_icons)
                     # Store selected papers in session state for debug display
                     st.session_state.current_selected_papers = selected_papers
@@ -340,17 +345,16 @@ def display_sidebar() -> tuple:
                     ]
                     display_clean_stats(stats_data)
                     
-                    # Show folder distribution
-                    folders = {}
-                    for paper in st.session_state.paper_list:
-                        folder = paper['folder']
-                        if folder not in folders:
-                            folders[folder] = 0
-                        folders[folder] += 1
+                    # Show hierarchical folder distribution
+                    from utils.data_utils import get_paper_hierarchy
+                    paper_hierarchy = get_paper_hierarchy(st.session_state.paper_list)
                     
-                    st.markdown("**Folder Distribution:**")
-                    for folder, count in sorted(folders.items()):
-                        st.caption(f"• {folder}: {count} papers")
+                    st.markdown("**📁 Hierarchical Folder Distribution:**")
+                    for main_folder, subfolders in paper_hierarchy.items():
+                        total_papers = sum(len(papers) for papers in subfolders.values())
+                        st.caption(f"🔬 **{main_folder}** ({total_papers} total papers):")
+                        for subfolder, papers in subfolders.items():
+                            st.caption(f"  • {subfolder}: {len(papers)} papers")
                     
                     # Paper Selection Debug Information
                     st.markdown("**📚 Paper Selection Status:**")
@@ -362,9 +366,9 @@ def display_sidebar() -> tuple:
                         st.caption(f"📄 Sample papers: {sample_papers}")
                     
                     # Show folder configuration
-                    folder_order, folder_icons = get_folder_config()
-                    st.caption(f"📁 Folder order: {folder_order}")
-                    st.caption(f"📁 Folder icons: {folder_icons}")
+                    main_folders, main_folder_icons, folder_hierarchy = get_folder_config()
+                    st.caption(f"📁 Main folders: {main_folders}")
+                    st.caption(f"📁 Folder hierarchy: {folder_hierarchy}")
                     
                     # Show current paper selection status
                     current_selected = st.session_state.get('current_selected_papers', [])
@@ -503,7 +507,12 @@ def display_controls_main() -> tuple:
     # Paper selection
     with st.expander("📚 Paper Selection", expanded=True):
         if st.session_state.paper_list:
-            folder_order, folder_icons = get_folder_config()
+            main_folders, main_folder_icons, folder_hierarchy = get_folder_config()
+            # Get flat folder order for backward compatibility
+            folder_order = []
+            for main_folder, subfolders in folder_hierarchy.items():
+                folder_order.extend(subfolders)
+            folder_icons = get_all_folder_icons()
             selected_papers = display_paper_selection(st.session_state.paper_list, folder_order, folder_icons)
             st.session_state.current_selected_papers = selected_papers
             st.caption(f"Selected: {len(selected_papers)}")
@@ -1371,7 +1380,12 @@ def display_preview_section(selected_papers: List[str]):
     # Box 1: Browse & Select
     with st.expander("📚 Browse & Select Papers", expanded=True):
         if st.session_state.paper_list:
-            folder_order, folder_icons = get_folder_config()
+            main_folders, main_folder_icons, folder_hierarchy = get_folder_config()
+            # Get flat folder order for backward compatibility
+            folder_order = []
+            for main_folder, subfolders in folder_hierarchy.items():
+                folder_order.extend(subfolders)
+            folder_icons = get_all_folder_icons()
             papers_by_folder = {}
             for paper in st.session_state.paper_list:
                 folder = paper.get('folder', 'Unknown')
@@ -1380,19 +1394,25 @@ def display_preview_section(selected_papers: List[str]):
             if 'selected_folder' not in st.session_state:
                 st.session_state.selected_folder = None
 
-            folder_cols = st.columns(len(folder_order))
-            for i, folder in enumerate(folder_order):
-                if folder in papers_by_folder:
-                    icon = folder_icons.get(folder, '📁')
-                    paper_count = len(papers_by_folder[folder])
+            # Create paper hierarchy for this section
+            from utils.data_utils import get_paper_hierarchy
+            paper_hierarchy = get_paper_hierarchy(st.session_state.paper_list)
+            
+            # Display main folders as buttons
+            folder_cols = st.columns(len(main_folders))
+            for i, main_folder in enumerate(main_folders):
+                if main_folder in paper_hierarchy and paper_hierarchy[main_folder]:
+                    icon = main_folder_icons.get(main_folder, '📁')
+                    # Count total papers in this main folder
+                    total_papers = sum(len(papers) for papers in paper_hierarchy[main_folder].values())
                     with folder_cols[i]:
                         if st.button(
-                            f"{icon} {folder}\n({paper_count} papers)",
-                            key=f"folder_btn_{folder}",
+                            f"{icon} {main_folder}\n({total_papers} papers)",
+                            key=f"folder_btn_{main_folder}",
                             use_container_width=True,
-                            type="primary" if st.session_state.selected_folder == folder else "secondary"
+                            type="primary" if st.session_state.selected_folder == main_folder else "secondary"
                         ):
-                            st.session_state.selected_folder = folder
+                            st.session_state.selected_folder = main_folder
                             st.rerun()
 
             # Small selection summary
@@ -1415,7 +1435,16 @@ def display_preview_section(selected_papers: List[str]):
             st.info("No papers to display.")
             return
 
-        folder_order, _ = get_folder_config()
+        main_folders, main_folder_icons, folder_hierarchy = get_folder_config()
+        # Get flat folder order for backward compatibility
+        folder_order = []
+        for main_folder, subfolders in folder_hierarchy.items():
+            folder_order.extend(subfolders)
+        
+        # Create paper hierarchy for this section
+        from utils.data_utils import get_paper_hierarchy
+        paper_hierarchy = get_paper_hierarchy(st.session_state.paper_list)
+        
         papers_by_folder = {}
         for paper in st.session_state.paper_list:
             folder = paper.get('folder', 'Unknown')
@@ -1440,16 +1469,21 @@ def display_preview_section(selected_papers: List[str]):
             else:
                 st.info("No details found for selected papers.")
         # Active folder view
-        elif st.session_state.selected_folder and st.session_state.selected_folder in papers_by_folder:
+        elif st.session_state.selected_folder and st.session_state.selected_folder in paper_hierarchy:
             st.markdown(f"**📚 Papers in {st.session_state.selected_folder}**")
-            render_cards(papers_by_folder[st.session_state.selected_folder])
+            # Get all papers from subfolders in the selected main folder
+            all_papers = []
+            for subfolder, papers in paper_hierarchy[st.session_state.selected_folder].items():
+                all_papers.extend(papers)
+            render_cards(all_papers)
         # Sample view
         else:
             st.info("👆 Select a research area above or choose papers from the sidebar.")
             sample_papers = []
-            for folder in folder_order:
-                if folder in papers_by_folder:
-                    sample_papers.extend(papers_by_folder[folder][:2])
+            # Get sample papers from all main folders
+            for main_folder, subfolders in paper_hierarchy.items():
+                for subfolder, papers in subfolders.items():
+                    sample_papers.extend(papers[:1])  # Take 1 paper from each subfolder
             if sample_papers:
                 render_cards(sample_papers[:8])
 

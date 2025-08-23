@@ -193,7 +193,15 @@ def display_folder_tree(papers, parent_path=""):
             selected_papers += display_folder_tree(folders[folder], os.path.join(parent_path, folder))
     return selected_papers
 
-def display_paper_selection(paper_list, folder_order, folder_icons):
+def display_paper_selection(paper_list, folder_order=None, folder_icons=None):
+    """
+    Display papers in hierarchical folder structure.
+    
+    Args:
+        paper_list: List of paper dictionaries
+        folder_order: Deprecated parameter (kept for backward compatibility)
+        folder_icons: Deprecated parameter (kept for backward compatibility)
+    """
     from collections import defaultdict
     selected_papers = []
     
@@ -201,72 +209,82 @@ def display_paper_selection(paper_list, folder_order, folder_icons):
         st.error("❌ No papers provided to display_paper_selection")
         return selected_papers
     
-    papers_by_top = defaultdict(list)
-    for paper in paper_list:
-        top_level = paper.get('top_level_folder')
-        if not top_level:
-            import os
-            if 'folder_path' in paper:
-                top_level = paper['folder_path'].split('/')[0]
-            else:
-                abs_paper_path = os.path.abspath(paper['file_path'])
-                abs_root = os.path.abspath('../Papers')
-                rel_folder_path = os.path.relpath(os.path.dirname(abs_paper_path), abs_root).replace('\\', '/')
-                top_level = rel_folder_path.split('/')[0] if '/' in rel_folder_path else rel_folder_path
-            paper['top_level_folder'] = top_level
-        papers_by_top[top_level].append(paper)
+    # Get hierarchical folder configuration
+    from utils.data_utils import get_folder_config, get_paper_hierarchy, get_all_folder_icons
+    main_folders, main_folder_icons, folder_hierarchy = get_folder_config()
     
-    for folder in folder_order:
-        if folder in papers_by_top:
-            icon = folder_icons.get(folder, '📁')
-            with st.expander(f"{icon} {folder}", expanded=False):
-                folder_papers = papers_by_top[folder]
-                
-                # Select All / Deselect All buttons
-                col_sel, col_desel = st.columns([1, 1])
-                if col_sel.button(f"Select All {folder}", key=f"select_all_{folder}"):
-                    for paper in folder_papers:
-                        st.session_state[f"paper_{paper['file_name']}"] = True
-                if col_desel.button(f"Deselect All {folder}", key=f"deselect_all_{folder}"):
-                    for paper in folder_papers:
-                        st.session_state[f"paper_{paper['file_name']}"] = False
-                for paper in sorted(folder_papers, key=lambda x: x['file_name']):
-                    col_paper, col_view = st.columns([7, 1])
-                    with col_paper:
-                        checked = st.session_state.get(f"paper_{paper['file_name']}", False)
+    # Get all folder icons (including subfolder icons)
+    all_folder_icons = get_all_folder_icons()
+    
+    # Organize papers into hierarchy
+    paper_hierarchy = get_paper_hierarchy(paper_list)
+    
+    # Display main folders with expandable subfolders
+    for main_folder in main_folders:
+        if main_folder in paper_hierarchy and paper_hierarchy[main_folder]:
+            icon = main_folder_icons.get(main_folder, '📁')
+            main_folder_papers = []
+            
+            # Count total papers in this main folder
+            total_papers = sum(len(papers) for papers in paper_hierarchy[main_folder].values())
+            
+            with st.expander(f"{icon} {main_folder} ({total_papers} papers)", expanded=False):
+                # Show subfolders within this main folder
+                for subfolder in folder_hierarchy.get(main_folder, []):
+                    if subfolder in paper_hierarchy[main_folder]:
+                        subfolder_papers = paper_hierarchy[main_folder][subfolder]
+                        subfolder_icon = all_folder_icons.get(subfolder, '📁')
                         
-                        # Create enhanced tooltip with vectorization info
-                        tooltip_parts = [f"Figures: {paper['figure_count']}"]
-                        if paper.get('vectorized_model'):
-                            tooltip_parts.append(f"Model: {paper['vectorized_model']}")
-                        if paper.get('vectorized_date'):
-                            # Format the date for display
-                            try:
-                                from datetime import datetime
-                                date_str = paper['vectorized_date']
-                                if 'T' in date_str:
-                                    date_obj = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                                    formatted_date = date_obj.strftime('%Y-%m-%d')
-                                    tooltip_parts.append(f"Vectorized: {formatted_date}")
-                            except:
-                                tooltip_parts.append(f"Vectorized: {paper['vectorized_date'][:10]}")
+                        # Make each subfolder collapsible
+                        with st.expander(f"{subfolder_icon} {subfolder} ({len(subfolder_papers)} papers)", expanded=False):
+                            # Select All / Deselect All buttons for this subfolder
+                            col_sel, col_desel = st.columns([1, 1])
+                            if col_sel.button(f"Select All {subfolder}", key=f"select_all_{main_folder}_{subfolder}"):
+                                for paper in subfolder_papers:
+                                    st.session_state[f"paper_{paper['file_name']}"] = True
+                            if col_desel.button(f"Deselect All {subfolder}", key=f"deselect_all_{main_folder}_{subfolder}"):
+                                for paper in subfolder_papers:
+                                    st.session_state[f"paper_{paper['file_name']}"] = False
+                            
+                            # Display papers in this subfolder
+                            for paper in sorted(subfolder_papers, key=lambda x: x['file_name']):
+                                col_paper, col_view = st.columns([7, 1])
+                                with col_paper:
+                                    checked = st.session_state.get(f"paper_{paper['file_name']}", False)
+                                    
+                                    # Create enhanced tooltip with vectorization info
+                                    tooltip_parts = [f"Figures: {paper['figure_count']}"]
+                                    if paper.get('vectorized_model'):
+                                        tooltip_parts.append(f"Model: {paper['vectorized_model']}")
+                                    if paper.get('vectorized_date'):
+                                        # Format the date for display
+                                        try:
+                                            from datetime import datetime
+                                            date_str = paper['vectorized_date']
+                                            if 'T' in date_str:
+                                                date_obj = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                                                formatted_date = date_obj.strftime('%Y-%m-%d')
+                                                tooltip_parts.append(f"Vectorized: {formatted_date}")
+                                        except:
+                                            tooltip_parts.append(f"Vectorized: {paper['vectorized_date'][:10]}")
+                                    
+                                    tooltip_text = " | ".join(tooltip_parts)
+                                    
+                                    if st.checkbox(
+                                        paper['file_name'].replace('.pdf', ''),
+                                        key=f"paper_{paper['file_name']}",
+                                        value=checked,
+                                        help=tooltip_text
+                                    ):
+                                        selected_papers.append(paper['file_name'])
+                                with col_view:
+                                    st.markdown('''<style>.stButton button {padding: 0.1rem 0.3rem !important; font-size: 1.1em !important;}</style>''', unsafe_allow_html=True)
+                                    if st.button("👁️", key=f"view_{paper['file_name']}", help="View paper"):
+                                        st.session_state.view_paper_pdf = paper['file_path']
+                                        st.rerun()
                         
-                        tooltip_text = " | ".join(tooltip_parts)
-                        
-                        if st.checkbox(
-                            paper['file_name'].replace('.pdf', ''),
-                            key=f"paper_{paper['file_name']}",
-                            value=checked,
-                            help=tooltip_text
-                        ):
-                            selected_papers.append(paper['file_name'])
-                    with col_view:
-                        st.markdown('''<style>.stButton button {padding: 0.1rem 0.3rem !important; font-size: 1.1em !important;}</style>''', unsafe_allow_html=True)
-                        if st.button("👁️", key=f"view_{paper['file_name']}", help="View paper"):
-                            st.session_state.view_paper_pdf = paper['file_path']
-                            st.rerun()
-        else:
-            pass  # Folder not found, skip silently
+                        # Collect papers from this subfolder for main folder total
+                        main_folder_papers.extend(subfolder_papers)
     
     return selected_papers
 
