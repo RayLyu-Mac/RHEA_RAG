@@ -25,7 +25,7 @@ def load_llm(model_name: str):
 def get_available_ollama_models() -> List[str]:
     """Get list of available Ollama models"""
     try:
-        response = requests.get("http://localhost:11434/api/tags", timeout=10)
+        response = requests.get("http://localhost:11435/api/tags", timeout=10)
         if response.status_code == 200:
             models_data = response.json()
             models = []

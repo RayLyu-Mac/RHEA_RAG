@@ -42,8 +42,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import (
     # Vector store utilities
     load_vectorstore, search_papers, get_paper_abstract_and_keywords,
-    # LLM utilities  
-    load_llm, get_available_ollama_models, optimize_question, get_suggested_keywords, generate_answer,
     # Data utilities
     load_paper_list, get_paper_figures, get_folder_config, get_all_folder_icons, display_image_safely, get_paper_stats,
     # UI components
@@ -54,6 +52,12 @@ from utils import (
     # Prompt management
     get_research_gap_prompt, get_follow_up_prompt, get_scholar_summary_prompt,
     get_llm_grouping_refinement_prompt, get_rag_flowchart_prompt
+)
+
+# Import direct API utilities (no LangChain dependency)
+from utils.direct_ollama_utils import (
+    load_direct_llm_v2 as load_llm, get_available_ollama_models, optimize_question, get_suggested_keywords, generate_answer,
+    count_tokens
 )
 
 # Import clean UI components
@@ -1300,7 +1304,6 @@ def handle_question_submission(question: str, llm_model: str, selected_papers: L
                     design_suffix = "\n\nAdditionally, generate detailed experimental outline, with specific experiment procedure and outline the challenges and expected result."
                     enhanced_answer = st.session_state.llm.invoke(answer + design_suffix)
                     # Update token count for enhanced answer
-                    from utils.llm_utils import count_tokens
                     token_count = count_tokens(enhanced_answer)
                     answer = enhanced_answer
                 except Exception:
@@ -1311,7 +1314,6 @@ def handle_question_submission(question: str, llm_model: str, selected_papers: L
             else:
                 answer = "No relevant documents found for your question."
             # Count tokens for fallback answer
-            from utils.llm_utils import count_tokens
             token_count = count_tokens(answer)
             search_results = []
     
@@ -2057,7 +2059,7 @@ def main():
                             if st.session_state.selected_context_answers:
                                 for idx in st.session_state.selected_context_answers:
                                     if idx < len(st.session_state.follow_up_history):
-                                        question, answer, _ = st.session_state.follow_up_history[idx]
+                                        question, answer, _, _ = st.session_state.follow_up_history[idx]
                                         context_parts.append(f"Previous Q&A {idx+1}:\nQ: {question}\nA: {answer}")
                             
                             if context_parts:
@@ -2089,7 +2091,6 @@ def main():
                                     follow_up_answer = st.session_state.llm.invoke(follow_up_prompt)
                                     
                                     # Count tokens for follow-up answer
-                                    from utils.llm_utils import count_tokens
                                     follow_up_token_count = count_tokens(follow_up_answer)
                                     
                                     # Debug: Check if the answer is empty
@@ -2305,7 +2306,7 @@ Please provide a comprehensive response:"""
                 md_content += f"**Answer:**\n{st.session_state['qa_answer']}\n\n"
             if st.session_state.get('follow_up_history'):
                 md_content += "## Follow-up Questions & Answers\n\n"
-                for i, (question, answer, timestamp) in enumerate(st.session_state.follow_up_history, 1):
+                for i, (question, answer, timestamp, _) in enumerate(st.session_state.follow_up_history, 1):
                     md_content += f"### Follow-up {i}\n\n"
                     md_content += f"**Question:** {question}\n\n"
                     md_content += f"**Answer:**\n{answer}\n\n"

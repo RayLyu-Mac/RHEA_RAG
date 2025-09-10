@@ -13,9 +13,13 @@ import plotly.graph_objects as go
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from langchain.vectorstores import Chroma
-from langchain.embeddings import OllamaEmbeddings
-from langchain.llms import Ollama
 from langchain_core.output_parsers import StrOutputParser
+
+# Import direct Ollama utilities (no LangChain dependency)
+from utils.direct_ollama_utils import (
+    load_direct_llm, load_direct_embeddings, get_available_ollama_models,
+    optimize_question, generate_answer, get_suggested_keywords
+)
 
 # Import correlation utilities
 from utils.paper_correlations import (
@@ -59,7 +63,10 @@ if 'correlation_manager' not in st.session_state:
 def load_vectorstore():
     """Load the vector store"""
     try:
-        embeddings = OllamaEmbeddings(model="nomic-embed-text:latest")
+        embeddings = load_direct_embeddings("nomic-embed-text:latest")
+        if embeddings is None:
+            st.error("Failed to load embeddings model. Please check Ollama connection.")
+            return None
         persist_directory = "../RHEA_RAG/VectorSpace/paper_vector_db_nomic-embed-text_latest_parent_child"
         vectorstore = Chroma(persist_directory=persist_directory, embedding_function=embeddings)
         return vectorstore
@@ -69,40 +76,14 @@ def load_vectorstore():
 
 @st.cache_resource
 def load_llm(model_name):
-    """Load the LLM model"""
+    """Load the LLM model using direct API calls"""
     try:
-        return Ollama(model=model_name)
+        return load_direct_llm(model_name)
     except Exception as e:
         st.error(f"Failed to load LLM model {model_name}: {e}")
         return None
 
-@st.cache_data
-def get_available_ollama_models():
-    """Get list of available Ollama models"""
-    try:
-        response = requests.get("http://localhost:11434/api/tags", timeout=10)
-        if response.status_code == 200:
-            models_data = response.json()
-            models = []
-            for model in models_data.get("models", []):
-                model_name = model.get("name", "")
-                if model_name:
-                    models.append(model_name)
-            
-            # Filter for common LLM models (exclude embedding models)
-            llm_models = []
-            for model in models:
-                # Include models that are likely to be LLMs
-                if any(keyword in model.lower() for keyword in ["qwen", "gemma", "llama", "mistral", "codellama", "phi", "vicuna", "alpaca"]):
-                    llm_models.append(model)
-            
-            return sorted(llm_models) if llm_models else ["qwen3:14b", "gemma3:4b"]
-        else:
-            st.warning("Could not fetch Ollama models. Using default models.")
-            return ["qwen3:14b", "gemma3:4b"]
-    except Exception as e:
-        st.warning(f"Failed to fetch Ollama models: {e}. Using default models.")
-        return ["qwen3:14b", "gemma3:4b"]
+# This function is now imported from robust_ollama_utils
 
 @st.cache_data
 def load_paper_list():
